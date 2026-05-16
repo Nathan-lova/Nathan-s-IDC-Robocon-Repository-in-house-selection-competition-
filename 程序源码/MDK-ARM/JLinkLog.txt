@@ -1,0 +1,109 @@
+T5F6C 000:107.575   SEGGER J-Link V9.42 Log File
+T5F6C 000:107.987   DLL Compiled: May  6 2026 12:25:27
+T5F6C 000:108.019   Logging started @ 2026-05-10 03:36
+T5F6C 000:108.047   Process: D:\software\UV4\UV4.exe
+T5F6C 000:108.090 - 108.072ms 
+T5F6C 000:108.148 JLINK_SetWarnOutHandler(...)
+T5F6C 000:108.188 - 0.045ms 
+T5F6C 000:108.254 JLINK_OpenEx(...)
+T5F6C 000:115.189   Firmware: J-Link V9 compiled May  7 2021 16:26:12
+T5F6C 000:115.995   Firmware: J-Link V9 compiled May  7 2021 16:26:12
+T5F6C 000:116.331   Decompressing FW timestamp took 242 us
+T5F6C 000:122.502   Hardware: V9.70
+T5F6C 000:122.566   S/N: 602712345
+T5F6C 000:122.596   OEM: SEGGER
+T5F6C 000:122.626   Feature(s): GDB, RDI, FlashBP, FlashDL, JFlash
+T5F6C 000:123.581   Bootloader: (FW returned invalid version)
+T5F6C 000:124.747   TELNET listener socket opened on port 19021
+T5F6C 000:125.026   WEBSRV WEBSRV_Init(): Starting webserver thread(s)
+T5F6C 000:125.446   WEBSRV Webserver running on local port 19080
+T5F6C 000:125.669   Looking for J-Link GUI Server exe at: D:\software\ARM\Segger\JLinkGUIServer.exe
+T5F6C 000:125.727   Looking for J-Link GUI Server exe at: D:\software\JLink_V942\JLinkGUIServer.exe
+T5F6C 000:125.763   Forking J-Link GUI Server: D:\software\JLink_V942\JLinkGUIServer.exe
+T5F6C 000:133.383   J-Link GUI Server info: "J-Link GUI server V9.42 "
+T5F6C 000:134.264 - 25.980ms returns "O.K."
+T5F6C 000:134.351 JLINK_SetErrorOutHandler(...)
+T5F6C 000:134.391 - 0.039ms 
+T5F6C 000:134.492 JLINK_ExecCommand("ProjectFile = "D:\IDC\RM\³ÌÐòÔ´Âë\MDK-ARM\JLinkSettings.ini"", ...). 
+T5F6C 000:166.805   Ref file found at: D:\software\ARM\Segger\JLinkDevices.ref
+T5F6C 000:167.012   REF file references invalid XML file: D:\software\JLink_V942\JLinkDevices.xml
+T5F6C 000:167.857   Flash bank @ 0x08000000: SFL: Parsing sectorization info from ELF file
+T5F6C 000:167.905     FlashDevice.SectorInfo[0]: .SectorSize = 0x00004000, .SectorStartAddr = 0x08000000
+T5F6C 000:167.937     FlashDevice.SectorInfo[1]: .SectorSize = 0x00010000, .SectorStartAddr = 0x08010000
+T5F6C 000:167.967     FlashDevice.SectorInfo[2]: .SectorSize = 0x000D0000, .SectorStartAddr = 0x08020000
+T5F6C 000:167.998   FlashBank @0x08000000: Sectorization info from SFL ELF file ignored because sectorization override from DLL / XML file is active.
+T5F6C 000:168.609   Flash bank @ 0x08000000: SFL: Parsing sectorization info from ELF file
+T5F6C 000:168.653     FlashDevice.SectorInfo[0]: .SectorSize = 0x00004000, .SectorStartAddr = 0x08000000
+T5F6C 000:168.684     FlashDevice.SectorInfo[1]: .SectorSize = 0x00010000, .SectorStartAddr = 0x08010000
+T5F6C 000:168.714     FlashDevice.SectorInfo[2]: .SectorSize = 0x000D0000, .SectorStartAddr = 0x08020000
+T5F6C 000:168.745   FlashBank @0x1FFF7800: Sectorization info from SFL ELF file ignored because sectorization override from DLL / XML file is active.
+T5F6C 000:179.239   Device "STM32F405RG" selected.
+T5F6C 000:179.914 - 45.420ms returns 0x00
+T5F6C 000:184.915 JLINK_ExecCommand("Device = STM32F427IIHx", ...). 
+T5F6C 000:185.596   Flash bank @ 0x08000000: SFL: Parsing sectorization info from ELF file
+T5F6C 000:185.645     FlashDevice.SectorInfo[0]: .SectorSize = 0x00004000, .SectorStartAddr = 0x08000000
+T5F6C 000:185.686     FlashDevice.SectorInfo[1]: .SectorSize = 0x00010000, .SectorStartAddr = 0x08010000
+T5F6C 000:185.722     FlashDevice.SectorInfo[2]: .SectorSize = 0x000D0000, .SectorStartAddr = 0x08020000
+T5F6C 000:185.759   FlashBank @0x08000000: Sectorization info from SFL ELF file ignored because sectorization override from DLL / XML file is active.
+T5F6C 000:186.386   Flash bank @ 0x08000000: SFL: Parsing sectorization info from ELF file
+T5F6C 000:186.432     FlashDevice.SectorInfo[0]: .SectorSize = 0x00004000, .SectorStartAddr = 0x08000000
+T5F6C 000:186.465     FlashDevice.SectorInfo[1]: .SectorSize = 0x00010000, .SectorStartAddr = 0x08010000
+T5F6C 000:186.498     FlashDevice.SectorInfo[2]: .SectorSize = 0x000D0000, .SectorStartAddr = 0x08020000
+T5F6C 000:186.531   FlashBank @0x1FFF7800: Sectorization info from SFL ELF file ignored because sectorization override from DLL / XML file is active.
+T5F6C 000:191.214   Device "STM32F405RG" selected.
+T5F6C 000:192.031 - 7.115ms returns 0x00
+T5F6C 000:192.091   ERROR: Unknown command
+T5F6C 000:192.129 JLINK_GetHardwareVersion()
+T5F6C 000:192.152 - 0.022ms returns 97000
+T5F6C 000:192.176 JLINK_GetDLLVersion()
+T5F6C 000:192.199 - 0.022ms returns 94200
+T5F6C 000:192.223 JLINK_GetOEMString(...)
+T5F6C 000:192.248 JLINK_GetFirmwareString(...)
+T5F6C 000:192.271 - 0.023ms 
+T5F6C 000:207.283 JLINK_GetDLLVersion()
+T5F6C 000:207.359 - 0.075ms returns 94200
+T5F6C 000:207.391 JLINK_GetCompileDateTime()
+T5F6C 000:207.421 - 0.029ms 
+T5F6C 000:214.715 JLINK_GetFirmwareString(...)
+T5F6C 000:214.762 - 0.047ms 
+T5F6C 000:219.287 JLINK_GetHardwareVersion()
+T5F6C 000:219.329 - 0.042ms returns 97000
+T5F6C 000:224.551 JLINK_GetSN()
+T5F6C 000:224.608 - 0.056ms returns 602712345
+T5F6C 000:229.392 JLINK_GetOEMString(...)
+T5F6C 000:239.071 JLINK_TIF_Select(JLINKARM_TIF_SWD)
+T5F6C 000:240.668 - 1.608ms returns 0x00
+T5F6C 000:240.731 JLINK_HasError()
+T5F6C 000:240.787 JLINK_SetSpeed(5000)
+T5F6C 000:241.166 - 0.382ms 
+T5F6C 000:241.217 JLINK_GetId()
+T5F6C 000:247.048   InitTarget() start
+T5F6C 000:247.128    J-Link Script File: Executing InitTarget()
+T5F6C 000:252.549   SWD selected. Executing JTAG -> SWD switching sequence.
+T5F6C 000:362.176   Error: Failed to initialize DAP.
+T5F6C 000:370.143   Can not attach to CPU. Trying connect under reset.
+T5F6C 000:427.632   SWD selected. Executing JTAG -> SWD switching sequence.
+T5F6C 000:539.024   Error: Failed to initialize DAP.
+T5F6C 000:546.354   Connecting to CPU via connect under reset failed.
+T5F6C 000:597.345   
+  ***** Error: 
+T5F6C 000:597.439   J-Link script file function InitTarget() returned with error code -1
+T5F6C 000:606.198   InitTarget() end - Took 350ms
+T5F6C 000:612.915   Connect failed. Resetting via Reset pin and trying again.
+T5F6C 000:686.935   InitTarget() start
+T5F6C 000:687.023    J-Link Script File: Executing InitTarget()
+T5F6C 000:695.522   SWD selected. Executing JTAG -> SWD switching sequence.
+T5F6C 000:805.798   Error: Failed to initialize DAP.
+T5F6C 000:811.965   Can not attach to CPU. Trying connect under reset.
+T5F6C 000:872.003   SWD selected. Executing JTAG -> SWD switching sequence.
+T5F6C 000:980.638   Error: Failed to initialize DAP.
+T5F6C 000:986.623   Connecting to CPU via connect under reset failed.
+T5F6C 001:037.314   
+  ***** Error: 
+T5F6C 001:037.459   J-Link script file function InitTarget() returned with error code -1
+T5F6C 001:044.713   InitTarget() end - Took 350ms
+T5F6C 001:044.807 - 803.588ms returns 0x00000000
+T5F6C 002:595.176 JLINK_Close()
+T5F6C 002:603.642 - 8.465ms
+T5F6C 002:603.720   
+T5F6C 002:603.749   Closed
