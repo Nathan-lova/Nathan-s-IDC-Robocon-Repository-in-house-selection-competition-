@@ -47,6 +47,7 @@ extern DMA_HandleTypeDef hdma_usart1_rx;
 extern UART_HandleTypeDef huart1;
 
 extern TIM_HandleTypeDef htim6;
+extern TIM_HandleTypeDef htim4;
 
 /******************************************************************************/
 /*            Cortex-M4 Processor Interruption and Exception Handlers         */ 
@@ -283,6 +284,11 @@ void DMA2_Stream6_IRQHandler(void)
 void TIM3_IRQHandler(void)
 {
   HAL_TIM_IRQHandler(&htim3);
+}
+
+void TIM4_IRQHandler(void)
+{
+  HAL_TIM_IRQHandler(&htim4);
 }
 
 /* USER CODE END 1 */

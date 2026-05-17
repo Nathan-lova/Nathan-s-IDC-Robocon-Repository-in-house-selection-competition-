@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * File Name          : main.c
-  * Description        : M2006/C610 motor control via CAN - auto start low speed
+  * Description        : M2006/C610 + PS2 + stepper + dual servo control
   ******************************************************************************
   */
 
@@ -29,15 +29,24 @@ static uint32_t step_cnt = 0;
 static uint8_t  pul_state = 0;
 static ps2_state_t ps2;
 static float    speed_scale = 1.0f;
-static uint8_t  prev_btn2 = 0xFF;      /* for edge detection */
-static uint8_t  prev_btn1 = 0xFF;
-static float    balance = 1.07f;        /* left motor scale (left faster → <1.0) */
-static int16_t  sm_left  = 0;          /* smoothed motor current */
+static uint8_t  prev_btn1 = 0xFF;       /* PS2 buttons: 0=pressed */
+static uint8_t  prev_btn2 = 0xFF;
+static float    balance = 1.07f;        /* left motor scale */
+static int16_t  sm_left  = 0;
 static int16_t  sm_right = 0;
-static uint8_t  cal_ok = 0;            /* center calibrated flag */
-static uint8_t  clx, cly, crx, cry;    /* calibrated centers */
-static uint32_t ps2_ok_cnt = 0;        /* successful reads */
-static uint32_t ps2_fail_cnt = 0;      /* failed reads */
+static uint32_t ps2_ok_cnt = 0;
+static uint32_t ps2_fail_cnt = 0;
+
+static uint8_t  cal_ok = 0;
+static uint8_t  cly, crx;
+
+/* Nathan-style PS2 reconnect */
+static uint8_t  ps2_connected = 1;
+static uint32_t ps2_reinit_tick = 0;
+
+/* stepper acceleration */
+static uint16_t stepper_period = 8999;
+/* USER CODE END PV */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -61,50 +70,36 @@ int main(void)
   my_can_filter_init_recv_all(&hcan1);
   HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0);
 
-
-  /* Stepper motor init */
   MX_MOTO_GPIO_Init();
-
   MX_TIM3_Init();
-  /* TIM3 started/stopped by PS2 UP/DOWN buttons */
-
-  /* PS2 controller init */
+  MX_SERVO_GPIO_Init();
+  MX_TIM4_Init();
   ps2_init();
-
-  /*
-   * One-shot: change motor ID from 1 to 2.
-   * Disconnect one motor, flash, power-cycle, then comment this line out.
-   */
- // c610_set_motor_id(&hcan1, 2);
   /* USER CODE END 2 */
 
   while (1)
   {
-    /* LED1 slow blink = loop running */
     if(HAL_GetTick() - led1_tick > 1000)
     {
       led1_tick = HAL_GetTick();
       HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
     }
 
-    /* PS2 control: read & drive 2 M2006 motors every 10ms */
     if(HAL_GetTick() - motor_tick >= 10)
     {
       motor_tick = HAL_GetTick();
 
       if (ps2_read(&ps2)) {
+        ps2_connected = 1;
         ps2_ok_cnt++;
-        /* --- auto-calibrate center on first valid frame --- */
+
         if (!cal_ok) {
           cal_ok = 1;
-          clx = ps2.joy_lx;
           cly = ps2.joy_ly;
           crx = ps2.joy_rx;
-          cry = ps2.joy_ry;
         }
 
-        /* --- speed adjust buttons (edge-triggered) --- */
-        uint8_t edge1 = ~ps2.btn1 & prev_btn1;
+        /* ---- speed: L1=×0.75, R1=×1.33 (edge-triggered, 0=pressed) ---- */
         uint8_t edge2 = ~ps2.btn2 & prev_btn2;
         if (edge2 & PS2_L1) {
           speed_scale *= 0.75f;
@@ -117,63 +112,107 @@ int main(void)
         prev_btn1 = ps2.btn1;
         prev_btn2 = ps2.btn2;
 
-        /* --- dead zone around calibrated center --- */
+        /* ---- dead zone ---- */
         int16_t ly = (int16_t)ps2.joy_ly - cly;
         int16_t rx = (int16_t)ps2.joy_rx - crx;
         if (ly > -35 && ly < 35) ly = 0;
         if (rx > -35 && rx < 35) rx = 0;
 
-        /* --- differential drive mixing --- */
+        /* ---- differential drive: L-stick Y=fwd, R-stick X=turn ---- */
         int16_t forward = (int16_t)(-ly * 10 * speed_scale);
-        int16_t turn    = (int16_t)( rx * 8 * speed_scale);
+        int16_t turn    = (int16_t)( rx * 8  * speed_scale);
         int16_t tgt_left  = forward + turn;
         int16_t tgt_right = forward - turn;
-			
-    
 
-        if (tgt_left  >  4000) tgt_left  =  2500;
-        if (tgt_left  < -4000) tgt_left  = -2500;
-        if (tgt_right >  4000) tgt_right =  2500;
-        if (tgt_right < -4000) tgt_right = -2500;
+        if (tgt_left  >  4000) tgt_left  =  4000;
+        if (tgt_left  < -4000) tgt_left  = -4000;
+        if (tgt_right >  4000) tgt_right =  4000;
+        if (tgt_right < -4000) tgt_right = -4000;
 
-        /* --- acceleration ramp: move smoothed value toward target --- */
-        #define RAMP_STEP  400   /* current change per 10ms cycle */
         if (sm_left < tgt_left) {
-          sm_left += RAMP_STEP;
+          sm_left += 200;
           if (sm_left > tgt_left) sm_left = tgt_left;
         } else if (sm_left > tgt_left) {
-          sm_left -= RAMP_STEP;
+          sm_left -= 200;
           if (sm_left < tgt_left) sm_left = tgt_left;
         }
         if (sm_right < tgt_right) {
-          sm_right += RAMP_STEP;
+          sm_right += 200;
           if (sm_right > tgt_right) sm_right = tgt_right;
         } else if (sm_right > tgt_right) {
-          sm_right -= RAMP_STEP;
+          sm_right -= 200;
           if (sm_right < tgt_right) sm_right = tgt_right;
         }
 
-        /* M1=left (balance scaled), M3=right (inverted). M2/M4 unused */
         set_moto_current(&hcan1, (int16_t)(sm_left * balance), sm_left,
                          -sm_right, sm_right);
 
-        /* --- Stepper motor: PS2 D-pad UP/DOWN --- */
+        /* ---- stepper: D-pad UP/DOWN with acceleration ramp ---- */
         if (!(ps2.btn1 & PS2_UP)) {
           GPIOB->BSRR = MOTO_DIR_Pin;
-          HAL_TIM_Base_Start_IT(&htim3);
+          if (!(htim3.Instance->CR1 & TIM_CR1_CEN)) {
+            stepper_period = 8999;
+            htim3.Instance->ARR = stepper_period;
+            HAL_TIM_Base_Start_IT(&htim3);
+          }
         } else if (!(ps2.btn1 & PS2_DOWN)) {
           GPIOB->BSRR = (uint32_t)MOTO_DIR_Pin << 16;
-          HAL_TIM_Base_Start_IT(&htim3);
+          if (!(htim3.Instance->CR1 & TIM_CR1_CEN)) {
+            stepper_period = 8999;
+            htim3.Instance->ARR = stepper_period;
+            HAL_TIM_Base_Start_IT(&htim3);
+          }
         } else {
           HAL_TIM_Base_Stop_IT(&htim3);
+          stepper_period = 8999;
+        }
+
+        if ((htim3.Instance->CR1 & TIM_CR1_CEN) && stepper_period > 2249) {
+          stepper_period -= 100;
+          if (stepper_period < 2249) stepper_period = 2249;
+          htim3.Instance->ARR = stepper_period;
+        }
+
+        /*
+         * 360° continuous-rotation servos: 1500=STOP, 500=max CW, 2500=max CCW
+         * Hold=fast spin-up, Release=ultra-slow coast to stop
+         */
+        #define S_GO  8   /* spin-up speed */
+        #define S_STOP 6   /* coast-to-stop */
+
+        /* MG996R (PC0, 360°): D-pad LEFT/RIGHT, release=coast to stop */
+        if (!(ps2.btn1 & PS2_LEFT)) {
+          if (servo0_pulse > 500) servo0_pulse -= S_GO;
+        } else if (!(ps2.btn1 & PS2_RIGHT)) {
+          if (servo0_pulse < 2500) servo0_pulse += S_GO;
+        } else {
+          if (servo0_pulse < 1500) servo0_pulse += S_STOP;
+          else if (servo0_pulse > 1500) servo0_pulse -= S_STOP;
+        }
+
+        /* MG996R #2 (PC1, 360°): L2/R2, release=coast to stop */
+        if (!(ps2.btn2 & PS2_L2)) {
+          if (servo1_pulse > 500) servo1_pulse -= S_GO;
+        } else if (!(ps2.btn2 & PS2_R2)) {
+          if (servo1_pulse < 2500) servo1_pulse += S_GO;
+        } else {
+          if (servo1_pulse < 1500) servo1_pulse += S_STOP;
+          else if (servo1_pulse > 1500) servo1_pulse -= S_STOP;
         }
       } else {
-        /* controller disconnected -> stop all motors immediately */
         ps2_fail_cnt++;
-        sm_left  = 0;
-        sm_right = 0;
-        set_moto_current(&hcan1, 0, 0, 0, 0);
-        HAL_TIM_Base_Stop_IT(&htim3);
+        if (ps2_connected) {
+          ps2_connected = 0;
+          sm_left  = 0;
+          sm_right = 0;
+          set_moto_current(&hcan1, 0, 0, 0, 0);
+          HAL_TIM_Base_Stop_IT(&htim3);
+          stepper_period = 8999;
+        }
+        if (HAL_GetTick() - ps2_reinit_tick > 200) {
+          ps2_reinit_tick = HAL_GetTick();
+          ps2_init();
+        }
       }
     }
   }
@@ -182,7 +221,6 @@ int main(void)
 /** System Clock Configuration */
 void SystemClock_Config(void)
 {
-  /* Enable FPU (must be done before any float operation) */
   SCB->CPACR |= ((3UL << 10*2)|(3UL << 11*2));
 
   RCC_OscInitTypeDef RCC_OscInitStruct;
@@ -200,9 +238,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
     _Error_Handler(__FILE__, __LINE__);
-  }
 
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
@@ -212,15 +248,14 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-  {
     _Error_Handler(__FILE__, __LINE__);
-  }
 
   HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
+/* ---- timer callbacks ---- */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM6) {
@@ -229,27 +264,39 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM3) {
     pul_state = !pul_state;
     if (pul_state)
-      GPIOB->BSRR = GPIO_PIN_0;                  // PB0 HIGH
+      GPIOB->BSRR = GPIO_PIN_0;
     else
-      GPIOB->BSRR = (uint32_t)GPIO_PIN_0 << 16;  // PB0 LOW
-    if (++step_cnt >= 8000) { // LED1每2秒闪一次
+      GPIOB->BSRR = (uint32_t)GPIO_PIN_0 << 16;
+    if (++step_cnt >= 24000) {
       step_cnt = 0;
       HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
     }
   }
+  if (htim->Instance == TIM4) {
+    /* start of 20ms servo frame: both pins HIGH */
+    GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
+    /* update OC compare values for this frame */
+    __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_1, servo0_pulse);
+    __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_2, servo1_pulse);
+  }
+}
+
+void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* end of servo pulse: pull the matching pin LOW */
+  if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+    GPIOC->BSRR = (uint32_t)GPIO_PIN_0 << 16;  /* PC0 LOW */
+  else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+    GPIOC->BSRR = (uint32_t)GPIO_PIN_1 << 16;  /* PC1 LOW */
 }
 
 void _Error_Handler(char * file, int line)
 {
-  while(1)
-  {
-  }
+  while(1) {}
 }
 
 #ifdef USE_FULL_ASSERT
-void assert_failed(uint8_t* file, uint32_t line)
-{
-}
+void assert_failed(uint8_t* file, uint32_t line) {}
 #endif
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

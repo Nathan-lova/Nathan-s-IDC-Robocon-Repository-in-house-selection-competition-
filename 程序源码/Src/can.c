@@ -141,7 +141,6 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
 {
 	can_err_cnt++;
 	__HAL_CAN_ENABLE_IT(&hcan1, CAN_IT_FMP0);
-
 }
 /* USER CODE END 1 */
 

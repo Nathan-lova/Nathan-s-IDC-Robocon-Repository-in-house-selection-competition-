@@ -245,8 +245,7 @@ void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;       // 84MHz / 1 = 84MHz
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 8999;       // 84MHz / 9000 = 9333Hz toggle → 4667Hz step
-                                  // 4667 step/s ÷ 800 step/rev × 60 = 350 RPM
+  htim3.Init.Period = 2249;       // 84MHz / 2250 = 37.3kHz toggle → 18.7kHz step (4x)
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
@@ -268,8 +267,53 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
     HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(TIM3_IRQn);
   }
+  if(tim_baseHandle->Instance == TIM4)
+  {
+    __HAL_RCC_TIM4_CLK_ENABLE();
+    HAL_NVIC_SetPriority(TIM4_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(TIM4_IRQn);
+  }
 }
 
+/* servo PWM: TIM4 at 1MHz, software PWM on PC0(servo0)/PC1(servo1) */
+TIM_HandleTypeDef htim4;
+volatile uint16_t servo0_pulse = 1500;  /* PC0: MG996R, 500-2500us */
+volatile uint16_t servo1_pulse = 1500;  /* PC1: DS3218, 500-2500us */
+
+void MX_TIM4_Init(void)
+{
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 83;           /* 84MHz/84 = 1MHz (1us/tick) */
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 19999;           /* 20ms period */
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+    _Error_Handler(__FILE__, __LINE__);
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
+  sConfigOC.Pulse = 1500;              /* default center */
+  HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1);
+  sConfigOC.Pulse = 1500;
+  HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2);
+
+  HAL_TIM_Base_Start_IT(&htim4);
+  HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_1);
+  HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_2);
+}
+
+/* TIM4 MSP init added to existing HAL_TIM_Base_MspInit below */
+
+void MX_SERVO_GPIO_Init(void)
+{
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  /* PC0, PC1: output push-pull for servo signal */
+  GPIOC->MODER = (GPIOC->MODER & ~((3u << 0) | (3u << 2)))
+               | ((1u << 0) | (1u << 2));
+  GPIOC->OTYPER &= ~((1u << 0) | (1u << 1));
+  GPIOC->BSRR = (uint32_t)GPIO_PIN_0 << 16;  /* PC0 LOW */
+  GPIOC->BSRR = (uint32_t)GPIO_PIN_1 << 16;  /* PC1 LOW */
+}
 /* USER CODE END 1 */
 
 /**

@@ -34,6 +34,7 @@ static void delay_us(u16 n)
  * CPOL=0 (SCK idle low), CPHA=0:
  *   - set MOSI, then SCK rising  -> PS2 samples  MOSI
  *   - SCK falling -> PS2 outputs MISO, we read it
+ * Original Robocon timing: 3+6+3us per bit (proven working).
  */
 static u8 ps2_xfer_byte(u8 tx)
 {
@@ -111,7 +112,7 @@ u8 ps2_read(ps2_state_t *state)
     u8 rx[9];
     u8 i;
 
-    __disable_irq();   /* protect bit-bang SPI from CAN/TIM interrupts */
+    __disable_irq();
     CS_L();
     delay_us(50);
 
@@ -124,12 +125,12 @@ u8 ps2_read(ps2_state_t *state)
     __enable_irq();
 
     state->id     = rx[1];
-    state->btn1   = rx[3];
-    state->btn2   = rx[4];
-    state->joy_rx = rx[5];
-    state->joy_ry = rx[6];
-    state->joy_lx = rx[7];
-    state->joy_ly = rx[8];
+    state->btn1   = rx[3];     /* 0 = pressed */
+    state->btn2   = rx[4];     /* 0 = pressed */
+    state->joy_rx = rx[5];     /* 0=left, 0x80=center, 0xFF=right */
+    state->joy_ry = rx[6];     /* 0=up,   0x80=center, 0xFF=down */
+    state->joy_lx = rx[7];     /* 0=left, 0x80=center, 0xFF=right */
+    state->joy_ly = rx[8];     /* 0=up,   0x80=center, 0xFF=down */
 
     /* reject all-zero or all-0xFF (noise / disconnected) */
     if (state->btn1 == 0x00 && state->btn2 == 0x00 &&

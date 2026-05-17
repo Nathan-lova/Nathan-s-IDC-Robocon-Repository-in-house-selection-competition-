@@ -64,8 +64,13 @@ void MX_TIM1_Init(void);
 /* USER CODE BEGIN Prototypes */
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim4;
+extern volatile uint16_t servo0_pulse;
+extern volatile uint16_t servo1_pulse;
 void MX_TIM2_Init(void);
 void MX_TIM3_Init(void);
+void MX_TIM4_Init(void);
+void MX_SERVO_GPIO_Init(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
