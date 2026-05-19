@@ -27,6 +27,7 @@ static uint32_t led1_tick = 0;
 static uint32_t motor_tick = 0;
 static uint32_t step_cnt = 0;
 static uint8_t  pul_state = 0;
+static int8_t   stepper_dir = 0;  /* -1=DOWN, 0=STOP, 1=UP */
 static ps2_state_t ps2;
 static float    speed_scale = 1.0f;
 static uint8_t  prev_btn1 = 0xFF;       /* PS2 buttons: 0=pressed */
@@ -148,29 +149,38 @@ int main(void)
                          -sm_right, sm_right);
 
         /* ---- stepper: D-pad UP/DOWN with acceleration ramp ---- */
-        if (!(ps2.btn1 & PS2_UP)) {
-          GPIOB->BSRR = MOTO_DIR_Pin;
-          if (!(htim3.Instance->CR1 & TIM_CR1_CEN)) {
-            stepper_period = 8999;
-            htim3.Instance->ARR = stepper_period;
-            HAL_TIM_Base_Start_IT(&htim3);
-          }
-        } else if (!(ps2.btn1 & PS2_DOWN)) {
-          GPIOB->BSRR = (uint32_t)MOTO_DIR_Pin << 16;
-          if (!(htim3.Instance->CR1 & TIM_CR1_CEN)) {
-            stepper_period = 8999;
-            htim3.Instance->ARR = stepper_period;
-            HAL_TIM_Base_Start_IT(&htim3);
-          }
-        } else {
-          HAL_TIM_Base_Stop_IT(&htim3);
-          stepper_period = 8999;
-        }
+        {
+          int8_t desired = 0;
+          if (!(ps2.btn1 & PS2_UP))
+            desired = 1;
+          else if (!(ps2.btn1 & PS2_DOWN))
+            desired = -1;
 
-        if ((htim3.Instance->CR1 & TIM_CR1_CEN) && stepper_period > 2249) {
-          stepper_period -= 100;
-          if (stepper_period < 2249) stepper_period = 2249;
-          htim3.Instance->ARR = stepper_period;
+          if (desired != stepper_dir) {
+            /* direction change or start/stop — full reset before switch */
+            HAL_TIM_Base_Stop_IT(&htim3);
+            htim3.Instance->CNT = 0;
+            stepper_period = 8999;
+            htim3.Instance->ARR = stepper_period;
+            pul_state = 0;
+            GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;  /* PUL LOW */
+
+            if (desired == 1) {
+              GPIOB->BSRR = MOTO_DIR_Pin;              /* DIR HIGH */
+              HAL_TIM_Base_Start_IT(&htim3);
+            } else if (desired == -1) {
+              GPIOB->BSRR = (uint32_t)MOTO_DIR_Pin << 16; /* DIR LOW */
+              HAL_TIM_Base_Start_IT(&htim3);
+            }
+            stepper_dir = desired;
+          }
+
+          /* acceleration ramp — safe ARR update via ARPE */
+          if (stepper_dir != 0 && stepper_period > 2249) {
+            stepper_period -= 100;
+            if (stepper_period < 2249) stepper_period = 2249;
+            htim3.Instance->ARR = stepper_period;
+          }
         }
 
         /*
@@ -208,6 +218,9 @@ int main(void)
           set_moto_current(&hcan1, 0, 0, 0, 0);
           HAL_TIM_Base_Stop_IT(&htim3);
           stepper_period = 8999;
+          stepper_dir = 0;
+          pul_state = 0;
+          GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
         }
         if (HAL_GetTick() - ps2_reinit_tick > 200) {
           ps2_reinit_tick = HAL_GetTick();

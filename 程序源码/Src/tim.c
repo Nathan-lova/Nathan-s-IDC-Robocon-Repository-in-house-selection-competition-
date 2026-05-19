@@ -252,6 +252,9 @@ void MX_TIM3_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
+  /* ARPE: buffer ARR writes, apply at next update event — safe ramp */
+  htim3.Instance->CR1 |= TIM_CR1_ARPE;
+
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
   {

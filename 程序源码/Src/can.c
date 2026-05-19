@@ -136,11 +136,20 @@ void HAL_CAN_MspDeInit(CAN_HandleTypeDef* canHandle)
 /* CAN���ߴ���ص����������﷢��CAN���ߴ����������������жϣ�����ᵼ��CAN�����쳣 >*/
 
 volatile uint32_t can_err_cnt = 0;
+volatile uint32_t can_tx_fail_cnt = 0;
 
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
 {
 	can_err_cnt++;
-	__HAL_CAN_ENABLE_IT(&hcan1, CAN_IT_FMP0);
+
+	/* Free stuck TX mailboxes so set_moto_current can recover */
+	uint32_t tsr = hcan->Instance->TSR;
+	if (!(tsr & CAN_TSR_TME0)) hcan->Instance->TSR |= CAN_TSR_ABRQ0;
+	if (!(tsr & CAN_TSR_TME1)) hcan->Instance->TSR |= CAN_TSR_ABRQ1;
+	if (!(tsr & CAN_TSR_TME2)) hcan->Instance->TSR |= CAN_TSR_ABRQ2;
+
+	if (hcan->State == HAL_CAN_STATE_BUSY_TX)
+		hcan->State = HAL_CAN_STATE_READY;
 }
 /* USER CODE END 1 */
 

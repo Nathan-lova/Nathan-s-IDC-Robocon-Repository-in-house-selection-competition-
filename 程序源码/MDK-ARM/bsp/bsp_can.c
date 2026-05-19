@@ -24,6 +24,8 @@
 #include "can.h"
 #include "bsp_can.h"
 
+extern volatile uint32_t can_tx_fail_cnt;
+
 
 moto_measure_t moto_chassis[4] = {0};//4 chassis moto
 
@@ -184,7 +186,21 @@ void set_moto_current(CAN_HandleTypeDef* hcan, s16 iq1, s16 iq2, s16 iq3, s16 iq
 	hcan->pTxMsg->Data[6] = iq4 >> 8;
 	hcan->pTxMsg->Data[7] = iq4;
 
-	HAL_CAN_Transmit(hcan, 10);
+	if (HAL_CAN_Transmit(hcan, 1) == HAL_OK)
+		return;
+
+	can_tx_fail_cnt++;
+
+	/* --- TX stuck: free all mailboxes and reset state machine --- */
+	uint32_t tsr = hcan->Instance->TSR;
+	if (!(tsr & CAN_TSR_TME0)) hcan->Instance->TSR |= CAN_TSR_ABRQ0;
+	if (!(tsr & CAN_TSR_TME1)) hcan->Instance->TSR |= CAN_TSR_ABRQ1;
+	if (!(tsr & CAN_TSR_TME2)) hcan->Instance->TSR |= CAN_TSR_ABRQ2;
+
+	if (hcan->State == HAL_CAN_STATE_BUSY_TX)
+		hcan->State = HAL_CAN_STATE_READY;
+
+	HAL_CAN_Transmit(hcan, 1);
 }
 
 /*
