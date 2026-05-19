@@ -1,0 +1,18 @@
+# Keil / MDK generated files
+*.o
+*.crf
+*.axf
+*.map
+*.dep
+*.d
+*.htm
+*.build_log.htm
+
+# build folders
+Objects/
+Listings/
+
+# common temporary files
+*.tmp
+*.log
+*.bak
