@@ -72,11 +72,15 @@ int main(void)
   HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0);
 
   MX_MOTO_GPIO_Init();
+  MX_EMAG_GPIO_Init();
   MX_TIM3_Init();
   MX_SERVO_GPIO_Init();
   MX_TIM4_Init();
   ps2_init();
   /* USER CODE END 2 */
+
+  static uint32_t emag_test_tick = 0;
+  static uint8_t  emag_test_state = 0;
 
   while (1)
   {
@@ -84,6 +88,20 @@ int main(void)
     {
       led1_tick = HAL_GetTick();
       HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+    }
+
+    /* ---- 测试: 每2秒切换电磁铁 (验证GPIO和硬件是否正常) ---- */
+    if(HAL_GetTick() - emag_test_tick > 2000)
+    {
+      emag_test_tick = HAL_GetTick();
+      emag_test_state = !emag_test_state;
+      if (emag_test_state) {
+        GPIOD->BSRR = EMAG1_IN1_Pin | EMAG2_IN3_Pin
+                    | ((uint32_t)(EMAG1_IN2_Pin | EMAG2_IN4_Pin) << 16);
+      } else {
+        GPIOD->BSRR = (uint32_t)(EMAG1_IN1_Pin | EMAG1_IN2_Pin
+                               | EMAG2_IN3_Pin | EMAG2_IN4_Pin) << 16;
+      }
     }
 
     if(HAL_GetTick() - motor_tick >= 10)
@@ -120,28 +138,57 @@ int main(void)
         if (rx > -35 && rx < 35) rx = 0;
 
         /* ---- differential drive: L-stick Y=fwd, R-stick X=turn ---- */
-        int16_t forward = (int16_t)(-ly * 10 * speed_scale);
-        int16_t turn    = (int16_t)( rx * 8  * speed_scale);
+        int16_t forward = (int16_t)(-ly * 15 * speed_scale);
+        int16_t turn    = (int16_t)( rx * 12 * speed_scale);
         int16_t tgt_left  = forward + turn;
         int16_t tgt_right = forward - turn;
 
-        if (tgt_left  >  4000) tgt_left  =  4000;
-        if (tgt_left  < -4000) tgt_left  = -4000;
-        if (tgt_right >  4000) tgt_right =  4000;
-        if (tgt_right < -4000) tgt_right = -4000;
+        /* ---- slope boost: if motors are loaded (high current, low speed)
+           while user commands movement, auto-ramp extra torque ---- */
+        {
+          static int16_t boost_l = 0, boost_r = 0;
+          int16_t spd_l = (moto_chassis[0].speed_rpm + moto_chassis[1].speed_rpm) / 2;
+          int16_t cur_l = (moto_chassis[0].real_current + moto_chassis[1].real_current) / 2;
+          int16_t spd_r = (moto_chassis[2].speed_rpm + moto_chassis[3].speed_rpm) / 2;
+          int16_t cur_r = (moto_chassis[2].real_current + moto_chassis[3].real_current) / 2;
+
+          /* left side: climbing when target > 300, speed < 500rpm, current > 1A */
+          if (abs(tgt_left) > 300 && abs(spd_l) < 500 && abs(cur_l) > 1000) {
+            if (boost_l < 5000) boost_l += 150;
+          } else {
+            if (boost_l > 0) boost_l -= 100;
+          }
+
+          /* right side */
+          if (abs(tgt_right) > 300 && abs(spd_r) < 500 && abs(cur_r) > 1000) {
+            if (boost_r < 5000) boost_r += 150;
+          } else {
+            if (boost_r > 0) boost_r -= 100;
+          }
+
+          if (tgt_left  > 0) tgt_left  += boost_l;
+          else              tgt_left  -= boost_l;
+          if (tgt_right > 0) tgt_right += boost_r;
+          else              tgt_right -= boost_r;
+        }
+
+        if (tgt_left  >  8000) tgt_left  =  8000;
+        if (tgt_left  < -8000) tgt_left  = -8000;
+        if (tgt_right >  8000) tgt_right =  8000;
+        if (tgt_right < -8000) tgt_right = -8000;
 
         if (sm_left < tgt_left) {
-          sm_left += 200;
+          sm_left += 500;
           if (sm_left > tgt_left) sm_left = tgt_left;
         } else if (sm_left > tgt_left) {
-          sm_left -= 200;
+          sm_left -= 500;
           if (sm_left < tgt_left) sm_left = tgt_left;
         }
         if (sm_right < tgt_right) {
-          sm_right += 200;
+          sm_right += 500;
           if (sm_right > tgt_right) sm_right = tgt_right;
         } else if (sm_right > tgt_right) {
-          sm_right -= 200;
+          sm_right -= 500;
           if (sm_right < tgt_right) sm_right = tgt_right;
         }
 
@@ -176,38 +223,80 @@ int main(void)
           }
 
           /* acceleration ramp — safe ARR update via ARPE */
-          if (stepper_dir != 0 && stepper_period > 2249) {
-            stepper_period -= 100;
-            if (stepper_period < 2249) stepper_period = 2249;
+          if (stepper_dir != 0 && stepper_period > 1687) {
+            stepper_period -= 133;
+            if (stepper_period < 1687) stepper_period = 1687;
             htim3.Instance->ARR = stepper_period;
           }
         }
 
         /*
-         * 360° continuous-rotation servos: 1500=STOP, 500=max CW, 2500=max CCW
-         * Hold=fast spin-up, Release=ultra-slow coast to stop
+         * Both servos: 360° continuous-rotation, instant stop on release
+         *   1500us=STOP,  500us=max CW,  2500us=max CCW
+         * Servo0 (PC0): D-pad LEFT/RIGHT
+         * Servo1 (PC1): L2/R2
          */
-        #define S_GO  8   /* spin-up speed */
-        #define S_STOP 6   /* coast-to-stop */
+        #define S_360_STEP 5
 
-        /* MG996R (PC0, 360°): D-pad LEFT/RIGHT, release=coast to stop */
+        /* ---- servo0: 360°, instant stop ---- */
         if (!(ps2.btn1 & PS2_LEFT)) {
-          if (servo0_pulse > 500) servo0_pulse -= S_GO;
+          if (servo0_pulse > 500) servo0_pulse -= S_360_STEP;
         } else if (!(ps2.btn1 & PS2_RIGHT)) {
-          if (servo0_pulse < 2500) servo0_pulse += S_GO;
+          if (servo0_pulse < 2500) servo0_pulse += S_360_STEP;
         } else {
-          if (servo0_pulse < 1500) servo0_pulse += S_STOP;
-          else if (servo0_pulse > 1500) servo0_pulse -= S_STOP;
+          servo0_pulse = 1500;
         }
 
-        /* MG996R #2 (PC1, 360°): L2/R2, release=coast to stop */
+        /* ---- servo1: 360°, instant stop ---- */
         if (!(ps2.btn2 & PS2_L2)) {
-          if (servo1_pulse > 500) servo1_pulse -= S_GO;
+          if (servo1_pulse > 500) servo1_pulse -= S_360_STEP;
         } else if (!(ps2.btn2 & PS2_R2)) {
-          if (servo1_pulse < 2500) servo1_pulse += S_GO;
+          if (servo1_pulse < 2500) servo1_pulse += S_360_STEP;
         } else {
-          if (servo1_pulse < 1500) servo1_pulse += S_STOP;
-          else if (servo1_pulse > 1500) servo1_pulse -= S_STOP;
+          servo1_pulse = 1500;
+        }
+
+        /* ---- electromagnets: CIRCLE = both ON, release = both OFF ---- */
+        if (!(ps2.btn2 & PS2_CIR)) {
+          GPIOD->BSRR = EMAG1_IN1_Pin | EMAG2_IN3_Pin
+                      | ((uint32_t)(EMAG1_IN2_Pin | EMAG2_IN4_Pin) << 16);
+        } else {
+          GPIOD->BSRR = (uint32_t)(EMAG1_IN1_Pin | EMAG1_IN2_Pin
+                                 | EMAG2_IN3_Pin | EMAG2_IN4_Pin) << 16;
+        }
+
+        /* PS2 bit-bang disables IRQs for ~900us. If TIM4 interrupts were
+           delayed, the PWM pin state may be wrong. Fix both cases:
+           - pin HIGH when CNT already passed CCR (OC match missed)
+           - pin LOW  when CNT still before CCR (period start missed)
+           Either way: clear flags + restart clean frame */
+        {
+          uint32_t cnt = TIM4->CNT;
+          uint32_t ccr1 = TIM4->CCR1;
+          uint32_t odr  = GPIOC->ODR;
+          int bad = 0;
+
+          if (cnt < ccr1) {
+            if (!(odr & GPIO_PIN_0)) bad = 1;  /* should be HIGH but is LOW */
+          } else {
+            if (odr & GPIO_PIN_0) bad = 1;     /* should be LOW but is HIGH */
+          }
+          if (!bad) {
+            uint32_t ccr2 = TIM4->CCR2;
+            if (cnt < ccr2) {
+              if (!(odr & GPIO_PIN_1)) bad = 1;
+            } else {
+              if (odr & GPIO_PIN_1) bad = 1;
+            }
+          }
+
+          if (bad) {
+            TIM4->SR    = ~(TIM_SR_UIF | TIM_SR_CC1IF | TIM_SR_CC2IF);
+            TIM4->CNT   = 0;
+            TIM4->CCR1  = servo0_pulse;
+            TIM4->CCR2  = servo1_pulse;
+            GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
+          }
         }
       } else {
         ps2_fail_cnt++;
@@ -221,6 +310,8 @@ int main(void)
           stepper_dir = 0;
           pul_state = 0;
           GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
+          GPIOD->BSRR = (uint32_t)(EMAG1_IN1_Pin | EMAG1_IN2_Pin
+                                 | EMAG2_IN3_Pin | EMAG2_IN4_Pin) << 16;
         }
         if (HAL_GetTick() - ps2_reinit_tick > 200) {
           ps2_reinit_tick = HAL_GetTick();
@@ -265,7 +356,7 @@ void SystemClock_Config(void)
 
   HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
-  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(SysTick_IRQn, 1, 0);
 }
 
 /* ---- timer callbacks ---- */
@@ -286,11 +377,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
   }
   if (htim->Instance == TIM4) {
-    /* start of 20ms servo frame: both pins HIGH */
-    GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
-    /* update OC compare values for this frame */
+    /* update compare values BEFORE raising pins, so the first
+       compare match after CNT rolls to 0 uses the latest pulse width */
     __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_1, servo0_pulse);
     __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_2, servo1_pulse);
+    GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
   }
 }
 

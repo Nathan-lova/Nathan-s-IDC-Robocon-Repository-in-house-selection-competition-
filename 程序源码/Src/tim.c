@@ -267,13 +267,13 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
   if(tim_baseHandle->Instance == TIM3)
   {
     __HAL_RCC_TIM3_CLK_ENABLE();
-    HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(TIM3_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(TIM3_IRQn);
   }
   if(tim_baseHandle->Instance == TIM4)
   {
     __HAL_RCC_TIM4_CLK_ENABLE();
-    HAL_NVIC_SetPriority(TIM4_IRQn, 1, 0);
+    HAL_NVIC_SetPriority(TIM4_IRQn, 0, 0);   /* highest: servo PWM timing critical */
     HAL_NVIC_EnableIRQ(TIM4_IRQn);
   }
 }

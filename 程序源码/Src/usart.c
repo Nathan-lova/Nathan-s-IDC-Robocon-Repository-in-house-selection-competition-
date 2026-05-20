@@ -116,7 +116,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     __HAL_LINKDMA(uartHandle,hdmarx,hdma_usart1_rx);
 
     /* USART1 interrupt Init */
-    HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(USART1_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
   /* USER CODE BEGIN USART1_MspInit 1 */
 
@@ -154,9 +154,9 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
 /* USER CODE BEGIN 1 */
 /**e
-  * @brief  配置串口没有DMA中断的接收
-	*					串口使用了空闲中断，所以这里没有必要再开启DMA中断，由于HAL库中所带的UART_Receive_DMA函数默认开启了DMA中断，
-	*					这里要自己实现一个没有中断的DMA接收函数。
+  * @brief  锟斤拷锟矫达拷锟斤拷没锟斤拷DMA锟叫断的斤拷锟斤拷
+	*					锟斤拷锟斤拷使锟斤拷锟剿匡拷锟斤拷锟叫断ｏ拷锟斤拷锟斤拷锟斤拷锟斤拷没锟叫憋拷要锟劫匡拷锟斤拷DMA锟叫断ｏ拷锟斤拷锟斤拷HAL锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷UART_Receive_DMA锟斤拷锟斤拷默锟较匡拷锟斤拷锟斤拷DMA锟叫断ｏ拷
+	*					锟斤拷锟斤拷要锟皆硷拷实锟斤拷一锟斤拷没锟斤拷锟叫断碉拷DMA锟斤拷锟秸猴拷锟斤拷锟斤拷
   *         
   * @param  
   * @retval HAL status
@@ -218,9 +218,9 @@ HAL_StatusTypeDef UART_Receive_DMA_NoIT(UART_HandleTypeDef *huart, uint8_t *pDat
 HAL_StatusTypeDef HAL_UART_Receive_IT_IDLE(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size){
 
 	
-		__HAL_UART_ENABLE_IT(huart, UART_IT_IDLE);//开启串口空闲中断
+		__HAL_UART_ENABLE_IT(huart, UART_IT_IDLE);//锟斤拷锟斤拷锟斤拷锟节匡拷锟斤拷锟叫讹拷
 	
-		return UART_Receive_DMA_NoIT(huart,pData,Size);//启动没有DMA中断的DMA接收函数
+		return UART_Receive_DMA_NoIT(huart,pData,Size);//锟斤拷锟斤拷没锟斤拷DMA锟叫断碉拷DMA锟斤拷锟秸猴拷锟斤拷
 
 
 }

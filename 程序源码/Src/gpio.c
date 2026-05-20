@@ -128,4 +128,25 @@ void MX_MOTO_GPIO_Init(void)
   * @}
   */
 
+/* USER CODE END 2 */
+
+/**
+  * @}
+  */
+
+/**
+  * @brief 电磁铁 GPIO 初始化 (PD12-PD15, 输出推挽, 初始低电平)
+  */
+void MX_EMAG_GPIO_Init(void)
+{
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /* PD12-PD15: output push-pull */
+  GPIOD->MODER = (GPIOD->MODER & ~((3u << 24) | (3u << 26) | (3u << 28) | (3u << 30)))
+               | ((1u << 24) | (1u << 26) | (1u << 28) | (1u << 30));
+  GPIOD->OTYPER &= ~((1u << 12) | (1u << 13) | (1u << 14) | (1u << 15));
+
+  /* all LOW = both magnets off */
+  GPIOD->BSRR = (uint32_t)(GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15) << 16;
+}
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
