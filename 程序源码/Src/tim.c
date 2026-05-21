@@ -280,8 +280,7 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
 
 /* servo PWM: TIM4 at 1MHz, software PWM on PC0(servo0)/PC1(servo1) */
 TIM_HandleTypeDef htim4;
-volatile uint16_t servo0_pulse = 1500;  /* PC0: MG996R, 500-2500us */
-volatile uint16_t servo1_pulse = 1500;  /* PC1: DS3218, 500-2500us */
+/* servo pulse state managed by servo_drv.c */
 
 void MX_TIM4_Init(void)
 {
@@ -316,6 +315,88 @@ void MX_SERVO_GPIO_Init(void)
   GPIOC->OTYPER &= ~((1u << 0) | (1u << 1));
   GPIOC->BSRR = (uint32_t)GPIO_PIN_0 << 16;  /* PC0 LOW */
   GPIOC->BSRR = (uint32_t)GPIO_PIN_1 << 16;  /* PC1 LOW */
+}
+
+/* ================================================================
+   Servo driver — continuous PWM output via TIM4
+   Upper layer calls servo_set_pulse() once; driver keeps the
+   signal alive every 20ms. Pulse values are fully encapsulated.
+   ================================================================ */
+static volatile uint16_t servo_pulse[2] = {
+    SERVO_PULSE_CENTER,
+    SERVO_PULSE_CENTER
+};
+
+static void clamp_pulse(uint8_t ch)
+{
+    if (servo_pulse[ch] < SERVO_PULSE_MIN)
+        servo_pulse[ch] = SERVO_PULSE_MIN;
+    else if (servo_pulse[ch] > SERVO_PULSE_MAX)
+        servo_pulse[ch] = SERVO_PULSE_MAX;
+}
+
+void servo_drv_init(void)
+{
+    servo_pulse[SERVO_CH0] = SERVO_PULSE_CENTER;
+    servo_pulse[SERVO_CH1] = SERVO_PULSE_CENTER;
+}
+
+void servo_set_pulse(uint8_t ch, uint16_t pulse_us)
+{
+    if (ch > SERVO_CH1) return;
+    servo_pulse[ch] = pulse_us;
+    clamp_pulse(ch);
+}
+
+uint16_t servo_get_pulse(uint8_t ch)
+{
+    if (ch > SERVO_CH1) return SERVO_PULSE_CENTER;
+    return servo_pulse[ch];
+}
+
+void servo_tim4_period_elapsed(void)
+{
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, servo_pulse[SERVO_CH0]);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, servo_pulse[SERVO_CH1]);
+    GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
+}
+
+void servo_tim4_oc_match(uint8_t channel)
+{
+    if (channel == HAL_TIM_ACTIVE_CHANNEL_1)
+        GPIOC->BSRR = (uint32_t)GPIO_PIN_0 << 16;
+    else if (channel == HAL_TIM_ACTIVE_CHANNEL_2)
+        GPIOC->BSRR = (uint32_t)GPIO_PIN_1 << 16;
+}
+
+void servo_tim4_glitch_check(void)
+{
+    uint32_t cnt  = TIM4->CNT;
+    uint32_t ccr1 = TIM4->CCR1;
+    uint32_t odr  = GPIOC->ODR;
+    int bad = 0;
+
+    if (cnt < ccr1) {
+        if (!(odr & GPIO_PIN_0)) bad = 1;
+    } else {
+        if (odr & GPIO_PIN_0) bad = 1;
+    }
+    if (!bad) {
+        uint32_t ccr2 = TIM4->CCR2;
+        if (cnt < ccr2) {
+            if (!(odr & GPIO_PIN_1)) bad = 1;
+        } else {
+            if (odr & GPIO_PIN_1) bad = 1;
+        }
+    }
+
+    if (bad) {
+        TIM4->SR   = ~(TIM_SR_UIF | TIM_SR_CC1IF | TIM_SR_CC2IF);
+        TIM4->CNT  = 0;
+        TIM4->CCR1 = servo_pulse[SERVO_CH0];
+        TIM4->CCR2 = servo_pulse[SERVO_CH1];
+        GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
+    }
 }
 /* USER CODE END 1 */
 

@@ -30,9 +30,7 @@ static uint8_t  pul_state = 0;
 static int8_t   stepper_dir = 0;  /* -1=DOWN, 0=STOP, 1=UP */
 static ps2_state_t ps2;
 static float    speed_scale = 1.0f;
-static uint8_t  prev_btn1 = 0xFF;       /* PS2 buttons: 0=pressed */
-static uint8_t  prev_btn2 = 0xFF;
-static float    balance = 1.07f;        /* left motor scale */
+static uint8_t  prev_btn2 = 0xFF;       /* edge detection for L1/R1 */
 static int16_t  sm_left  = 0;
 static int16_t  sm_right = 0;
 static uint32_t ps2_ok_cnt = 0;
@@ -76,6 +74,7 @@ int main(void)
   MX_TIM3_Init();
   MX_SERVO_GPIO_Init();
   MX_TIM4_Init();
+  servo_drv_init();
   ps2_init();
   /* USER CODE END 2 */
 
@@ -128,7 +127,6 @@ int main(void)
           speed_scale *= 1.333f;
           if (speed_scale > 3.0f) speed_scale = 3.0f;
         }
-        prev_btn1 = ps2.btn1;
         prev_btn2 = ps2.btn2;
 
         /* ---- dead zone ---- */
@@ -143,23 +141,20 @@ int main(void)
         int16_t tgt_left  = forward + turn;
         int16_t tgt_right = forward - turn;
 
-        /* ---- slope boost: if motors are loaded (high current, low speed)
-           while user commands movement, auto-ramp extra torque ---- */
+        /* ---- slope boost: auto-ramp extra torque under load ---- */
         {
           static int16_t boost_l = 0, boost_r = 0;
-          int16_t spd_l = (moto_chassis[0].speed_rpm + moto_chassis[1].speed_rpm) / 2;
-          int16_t cur_l = (moto_chassis[0].real_current + moto_chassis[1].real_current) / 2;
-          int16_t spd_r = (moto_chassis[2].speed_rpm + moto_chassis[3].speed_rpm) / 2;
-          int16_t cur_r = (moto_chassis[2].real_current + moto_chassis[3].real_current) / 2;
+          int16_t spd_l = moto_chassis[0].speed_rpm;
+          int16_t cur_l = moto_chassis[0].real_current;
+          int16_t spd_r = moto_chassis[1].speed_rpm;
+          int16_t cur_r = moto_chassis[1].real_current;
 
-          /* left side: climbing when target > 300, speed < 500rpm, current > 1A */
           if (abs(tgt_left) > 300 && abs(spd_l) < 500 && abs(cur_l) > 1000) {
             if (boost_l < 5000) boost_l += 150;
           } else {
             if (boost_l > 0) boost_l -= 100;
           }
 
-          /* right side */
           if (abs(tgt_right) > 300 && abs(spd_r) < 500 && abs(cur_r) > 1000) {
             if (boost_r < 5000) boost_r += 150;
           } else {
@@ -192,8 +187,7 @@ int main(void)
           if (sm_right < tgt_right) sm_right = tgt_right;
         }
 
-        set_moto_current(&hcan1, (int16_t)(sm_left * balance), sm_left,
-                         -sm_right, sm_right);
+        set_moto_current(&hcan1, sm_left, -sm_right);
 
         /* ---- stepper: D-pad UP/DOWN with acceleration ramp ---- */
         {
@@ -231,30 +225,38 @@ int main(void)
         }
 
         /*
-         * Both servos: 360° continuous-rotation, instant stop on release
-         *   1500us=STOP,  500us=max CW,  2500us=max CCW
-         * Servo0 (PC0): D-pad LEFT/RIGHT
-         * Servo1 (PC1): L2/R2
+         * Servo0 (PC0, D-pad LEFT/RIGHT): 360° continuous rotation
+         *   1500us=STOP, 500us=max CW, 2500us=max CCW
+         * Servo1 (PC1, L2/R2): 180° angle servo — holds position on release
+         *   500us=0°, 1500us=90°, 2500us=180°
          */
         #define S_360_STEP 5
+        #define S_180_STEP 8
 
-        /* ---- servo0: 360°, instant stop ---- */
-        if (!(ps2.btn1 & PS2_LEFT)) {
-          if (servo0_pulse > 500) servo0_pulse -= S_360_STEP;
-        } else if (!(ps2.btn1 & PS2_RIGHT)) {
-          if (servo0_pulse < 2500) servo0_pulse += S_360_STEP;
-        } else {
-          servo0_pulse = 1500;
+        /* ---- servo0: 360°, stop on release ---- */
+        {
+          uint16_t s0 = servo_get_pulse(SERVO_CH0);
+          if (!(ps2.btn1 & PS2_LEFT)) {
+            if (s0 > 500) s0 -= S_360_STEP;
+          } else if (!(ps2.btn1 & PS2_RIGHT)) {
+            if (s0 < 2500) s0 += S_360_STEP;
+          } else {
+            s0 = 1500;
+          }
+          servo_set_pulse(SERVO_CH0, s0);
         }
 
-        /* ---- servo1: 360°, instant stop ---- */
-        if (!(ps2.btn2 & PS2_L2)) {
-          if (servo1_pulse > 500) servo1_pulse -= S_360_STEP;
-        } else if (!(ps2.btn2 & PS2_R2)) {
-          if (servo1_pulse < 2500) servo1_pulse += S_360_STEP;
-        } else {
-          servo1_pulse = 1500;
+        /* ---- servo1: 180°, hold position on release ---- */
+        {
+          uint16_t s1 = servo_get_pulse(SERVO_CH1);
+          if (!(ps2.btn2 & PS2_L2)) {
+            if (s1 > 500) s1 -= S_180_STEP;
+          } else if (!(ps2.btn2 & PS2_R2)) {
+            if (s1 < 2500) s1 += S_180_STEP;
+          }
+          servo_set_pulse(SERVO_CH1, s1);
         }
+        /* release = keep current position (no snap-back to center) */
 
         /* ---- electromagnets: CIRCLE = both ON, release = both OFF ---- */
         if (!(ps2.btn2 & PS2_CIR)) {
@@ -265,46 +267,14 @@ int main(void)
                                  | EMAG2_IN3_Pin | EMAG2_IN4_Pin) << 16;
         }
 
-        /* PS2 bit-bang disables IRQs for ~900us. If TIM4 interrupts were
-           delayed, the PWM pin state may be wrong. Fix both cases:
-           - pin HIGH when CNT already passed CCR (OC match missed)
-           - pin LOW  when CNT still before CCR (period start missed)
-           Either way: clear flags + restart clean frame */
-        {
-          uint32_t cnt = TIM4->CNT;
-          uint32_t ccr1 = TIM4->CCR1;
-          uint32_t odr  = GPIOC->ODR;
-          int bad = 0;
-
-          if (cnt < ccr1) {
-            if (!(odr & GPIO_PIN_0)) bad = 1;  /* should be HIGH but is LOW */
-          } else {
-            if (odr & GPIO_PIN_0) bad = 1;     /* should be LOW but is HIGH */
-          }
-          if (!bad) {
-            uint32_t ccr2 = TIM4->CCR2;
-            if (cnt < ccr2) {
-              if (!(odr & GPIO_PIN_1)) bad = 1;
-            } else {
-              if (odr & GPIO_PIN_1) bad = 1;
-            }
-          }
-
-          if (bad) {
-            TIM4->SR    = ~(TIM_SR_UIF | TIM_SR_CC1IF | TIM_SR_CC2IF);
-            TIM4->CNT   = 0;
-            TIM4->CCR1  = servo0_pulse;
-            TIM4->CCR2  = servo1_pulse;
-            GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
-          }
-        }
+        servo_tim4_glitch_check();
       } else {
         ps2_fail_cnt++;
         if (ps2_connected) {
           ps2_connected = 0;
           sm_left  = 0;
           sm_right = 0;
-          set_moto_current(&hcan1, 0, 0, 0, 0);
+          set_moto_current(&hcan1, 0, 0);
           HAL_TIM_Base_Stop_IT(&htim3);
           stepper_period = 8999;
           stepper_dir = 0;
@@ -377,21 +347,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
   }
   if (htim->Instance == TIM4) {
-    /* update compare values BEFORE raising pins, so the first
-       compare match after CNT rolls to 0 uses the latest pulse width */
-    __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_1, servo0_pulse);
-    __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_2, servo1_pulse);
-    GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
+    servo_tim4_period_elapsed();
   }
 }
 
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  /* end of servo pulse: pull the matching pin LOW */
-  if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-    GPIOC->BSRR = (uint32_t)GPIO_PIN_0 << 16;  /* PC0 LOW */
-  else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
-    GPIOC->BSRR = (uint32_t)GPIO_PIN_1 << 16;  /* PC1 LOW */
+  servo_tim4_oc_match(htim->Channel);
 }
 
 void _Error_Handler(char * file, int line)

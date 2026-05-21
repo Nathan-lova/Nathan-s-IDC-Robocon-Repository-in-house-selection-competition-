@@ -27,7 +27,7 @@
 extern volatile uint32_t can_tx_fail_cnt;
 
 
-moto_measure_t moto_chassis[4] = {0};//4 chassis moto
+moto_measure_t moto_chassis[2] = {0};//M1 and M3 only
 
 
 
@@ -95,13 +95,10 @@ void HAL_CAN_RxCpltCallback(CAN_HandleTypeDef* _hcan)
 	//ignore can1 or can2.
 	switch(_hcan->pRxMsg->StdId){
 		case CAN_2006Moto1_ID:
-		case CAN_2006Moto2_ID:
 		case CAN_2006Moto3_ID:
-		case CAN_2006Moto4_ID:
 			{
 				static u8 i;
-				i = _hcan->pRxMsg->StdId - CAN_2006Moto1_ID;
-
+				i = (_hcan->pRxMsg->StdId == CAN_2006Moto1_ID) ? 0 : 1;
 				get_moto_measure(&moto_chassis[i], _hcan);
 			}
 			break;
@@ -171,7 +168,7 @@ void get_total_angle(moto_measure_t *p){
 	p->last_angle = p->angle;
 }
 
-void set_moto_current(CAN_HandleTypeDef* hcan, s16 iq1, s16 iq2, s16 iq3, s16 iq4){
+void set_moto_current(CAN_HandleTypeDef* hcan, s16 iq1, s16 iq3){
 
 	hcan->pTxMsg->StdId = 0x200;
 	hcan->pTxMsg->IDE = CAN_ID_STD;
@@ -179,12 +176,12 @@ void set_moto_current(CAN_HandleTypeDef* hcan, s16 iq1, s16 iq2, s16 iq3, s16 iq
 	hcan->pTxMsg->DLC = 0x08;
 	hcan->pTxMsg->Data[0] = (iq1 >> 8);
 	hcan->pTxMsg->Data[1] = iq1;
-	hcan->pTxMsg->Data[2] = (iq2 >> 8);
-	hcan->pTxMsg->Data[3] = iq2;
+	hcan->pTxMsg->Data[2] = 0;
+	hcan->pTxMsg->Data[3] = 0;
 	hcan->pTxMsg->Data[4] = iq3 >> 8;
 	hcan->pTxMsg->Data[5] = iq3;
-	hcan->pTxMsg->Data[6] = iq4 >> 8;
-	hcan->pTxMsg->Data[7] = iq4;
+	hcan->pTxMsg->Data[6] = 0;
+	hcan->pTxMsg->Data[7] = 0;
 
 	if (HAL_CAN_Transmit(hcan, 1) == HAL_OK)
 		return;

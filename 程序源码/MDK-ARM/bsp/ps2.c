@@ -112,7 +112,9 @@ u8 ps2_read(ps2_state_t *state)
     u8 rx[9];
     u8 i;
 
-    __disable_irq();
+    /* Block IRQs at priority >=1 so TIM4 (priority 0) keeps running —
+       otherwise servo PWM glitches every PS2 poll causing 180° servo jitter. */
+    __set_BASEPRI(0x10);
     CS_L();
     delay_us(50);
 
@@ -122,7 +124,7 @@ u8 ps2_read(ps2_state_t *state)
 
     CS_H();
     MOSI_H();
-    __enable_irq();
+    __set_BASEPRI(0);
 
     state->id     = rx[1];
     state->btn1   = rx[3];     /* 0 = pressed */

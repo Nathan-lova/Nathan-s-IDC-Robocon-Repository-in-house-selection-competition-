@@ -65,12 +65,24 @@ void MX_TIM1_Init(void);
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
-extern volatile uint16_t servo0_pulse;
-extern volatile uint16_t servo1_pulse;
 void MX_TIM2_Init(void);
 void MX_TIM3_Init(void);
 void MX_TIM4_Init(void);
 void MX_SERVO_GPIO_Init(void);
+
+/* ---- servo driver API (continuous PWM via TIM4) ---- */
+#define SERVO_CH0        0
+#define SERVO_CH1        1
+#define SERVO_PULSE_MIN     500
+#define SERVO_PULSE_MAX     2500
+#define SERVO_PULSE_CENTER  1500
+
+void servo_drv_init(void);
+void servo_set_pulse(uint8_t ch, uint16_t pulse_us);
+uint16_t servo_get_pulse(uint8_t ch);
+void servo_tim4_period_elapsed(void);
+void servo_tim4_oc_match(uint8_t channel);
+void servo_tim4_glitch_check(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
