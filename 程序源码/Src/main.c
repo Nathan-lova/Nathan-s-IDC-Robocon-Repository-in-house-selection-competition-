@@ -21,7 +21,40 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+volatile uint16_t dbg_servo180_target = 0;
+volatile uint16_t dbg_servo1_pulse = 0;
 /* USER CODE BEGIN PV */
+/* ================= Real PS2 key mapping ================= */
+
+typedef struct
+{
+    uint8_t bank;   // 1 = btn1, 2 = btn2
+    uint8_t mask;
+} ps2_key_t;
+
+#define PS2_BANK_BTN1  1
+#define PS2_BANK_BTN2  2
+
+#define K_BTN1(mask)   {PS2_BANK_BTN1, (mask)}
+#define K_BTN2(mask)   {PS2_BANK_BTN2, (mask)}
+
+
+/* 你们实测出来的物理按键映射 */
+static ps2_key_t KEY_PHY_UP       = K_BTN1(0x08);
+static ps2_key_t KEY_PHY_RIGHT    = K_BTN1(0x10);
+static ps2_key_t KEY_PHY_DOWN     = K_BTN1(0x20);
+static ps2_key_t KEY_PHY_LEFT     = K_BTN1(0x40);
+
+static ps2_key_t KEY_PHY_L2       = K_BTN1(0x80);
+static ps2_key_t KEY_PHY_R2       = K_BTN2(0x01);
+static ps2_key_t KEY_PHY_L1       = K_BTN2(0x02);
+static ps2_key_t KEY_PHY_R1       = K_BTN2(0x04);
+
+static ps2_key_t KEY_PHY_TRIANGLE = K_BTN2(0x08);
+static ps2_key_t KEY_PHY_CIRCLE   = K_BTN2(0x10);
+static ps2_key_t KEY_PHY_CROSS    = K_BTN2(0x20);
+static ps2_key_t KEY_PHY_SQUARE   = K_BTN2(0x40);
+
 uint16_t TIM_COUNT[2];
 static uint32_t led1_tick = 0;
 static uint32_t motor_tick = 0;
@@ -52,6 +85,25 @@ static uint16_t stepper_period = 8999;
 void SystemClock_Config(void);
 
 /* USER CODE BEGIN 0 */
+static uint8_t ps2_key_pressed(ps2_key_t key)
+{
+    uint8_t pressed;
+
+    if (key.bank == PS2_BANK_BTN1)
+    {
+        pressed = (uint8_t)(~ps2.btn1);
+    }
+    else
+    {
+        /*
+         * 你们的手柄 btn2 在不按任何键时也有 0x80。
+         * 所以必须屏蔽 0x80，否则程序会误以为某个键一直被按下。
+         */
+        pressed = (uint8_t)(~ps2.btn2) & 0x7F;
+    }
+
+    return (pressed & key.mask) != 0;
+}
 /* USER CODE END 0 */
 
 int main(void)
@@ -108,6 +160,7 @@ int main(void)
       motor_tick = HAL_GetTick();
 
       if (ps2_read(&ps2)) {
+				
         ps2_connected = 1;
         ps2_ok_cnt++;
 
@@ -118,16 +171,29 @@ int main(void)
         }
 
         /* ---- speed: L1=×0.75, R1=×1.33 (edge-triggered, 0=pressed) ---- */
-        uint8_t edge2 = ~ps2.btn2 & prev_btn2;
-        if (edge2 & PS2_L1) {
-          speed_scale *= 0.75f;
-          if (speed_scale < 0.1f) speed_scale = 0.1f;
-        }
-        if (edge2 & PS2_R1) {
-          speed_scale *= 1.333f;
-          if (speed_scale > 3.0f) speed_scale = 3.0f;
-        }
-        prev_btn2 = ps2.btn2;
+				{
+						uint8_t btn2_effective;
+						uint8_t edge2;
+
+						btn2_effective = ((uint8_t)(~ps2.btn2)) & 0x7F;
+						edge2 = btn2_effective & (uint8_t)(~prev_btn2);
+
+						if (edge2 & KEY_PHY_R1.mask)
+						{
+								speed_scale *= 0.75f;
+								if (speed_scale < 0.1f)
+										speed_scale = 0.1f;
+						}
+
+						if (edge2 & KEY_PHY_L1.mask)
+						{
+								speed_scale *= 1.333f;
+								if (speed_scale > 3.0f)
+										speed_scale = 3.0f;
+						}
+
+						prev_btn2 = btn2_effective;
+				}
 
         /* ---- dead zone ---- */
         int16_t ly = (int16_t)ps2.joy_ly - cly;
@@ -192,9 +258,9 @@ int main(void)
         /* ---- stepper: D-pad UP/DOWN with acceleration ramp ---- */
         {
           int8_t desired = 0;
-          if (!(ps2.btn1 & PS2_UP))
+          if (ps2_key_pressed(KEY_PHY_DOWN))
             desired = 1;
-          else if (!(ps2.btn1 & PS2_DOWN))
+          else if (ps2_key_pressed(KEY_PHY_UP))
             desired = -1;
 
           if (desired != stepper_dir) {
@@ -236,9 +302,9 @@ int main(void)
         /* ---- servo0: 360°, stop on release ---- */
         {
           uint16_t s0 = servo_get_pulse(SERVO_CH0);
-          if (!(ps2.btn1 & PS2_LEFT)) {
+          if (ps2_key_pressed(KEY_PHY_LEFT)) {
             if (s0 > 500) s0 -= S_360_STEP;
-          } else if (!(ps2.btn1 & PS2_RIGHT)) {
+          } else if (ps2_key_pressed(KEY_PHY_RIGHT)) {
             if (s0 < 2500) s0 += S_360_STEP;
           } else {
             s0 = 1500;
@@ -249,13 +315,16 @@ int main(void)
         /* ---- servo1: 180°, hold position on release ---- */
         {
           uint16_t s1 = servo_get_pulse(SERVO_CH1);
-          if (!(ps2.btn2 & PS2_L2)) {
+          if (ps2_key_pressed(KEY_PHY_L2)) {
+						
             if (s1 > 500) s1 -= S_180_STEP;
-          } else if (!(ps2.btn2 & PS2_R2)) {
+          } else if (ps2_key_pressed(KEY_PHY_R2)) {
             if (s1 < 2500) s1 += S_180_STEP;
           }
           servo_set_pulse(SERVO_CH1, s1);
         }
+	
+
         /* release = keep current position (no snap-back to center) */
 
         /* ---- electromagnets: CIRCLE = both ON, release = both OFF ---- */
