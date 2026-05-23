@@ -4,7 +4,7 @@
 /* PS2 pins */
 #define PS2_CS   GPIO_PIN_6    /* PI6: CS/SEL, output */
 #define PS2_SCK  GPIO_PIN_1    /* PA1: clock, output */
-#define PS2_MISO GPIO_PIN_2    /* PA2: data from controller, input */
+#define PS2_MISO GPIO_PIN_2      /* PA2: data from controller, input */
 #define PS2_MOSI GPIO_PIN_7    /* PI7: command to controller, output */
 
 #define PS2_CS_PORT   GPIOI
