@@ -66,8 +66,8 @@
 #define MOTO_PUL_GPIO_Port GPIOB
 #define MOTO_DIR_Pin GPIO_PIN_1
 #define MOTO_DIR_GPIO_Port GPIOB
-#define RELAY_Pin GPIO_PIN_0
-#define RELAY_GPIO_Port GPIOI
+#define RELAY_Pin GPIO_PIN_12
+#define RELAY_GPIO_Port GPIOD
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

@@ -25,6 +25,13 @@
 volatile uint16_t dbg_servo180_target = 0;
 volatile uint16_t dbg_servo1_pulse = 0;
 /* USER CODE BEGIN PV */
+#define JOY_DEAD      15
+#define JOY_MAX       127.0f
+#define WHEEL_MAX_RPM 4000.0f
+#define TURN_MAX_RPM  3000.0f
+#define SERVO360_STOP_US  1500u
+#define SERVO360_SPEED_US 150u
+
 PID_TypeDef motor_pid[2];
 
 /* ================= Real PS2 key mapping ================= */
@@ -137,8 +144,8 @@ int main(void)
   /* PID speed control init */
   pid_init(&motor_pid[0]);
   pid_init(&motor_pid[1]);
-  motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 8000, 10, 10, 500, 0, 6, 1.0f, 0.5f);
-  motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 8000, 10, 10, 500, 0, 6, 1.0f, 0.5f);
+  motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 3000, 20, 10, 500, 0, 2.5f, 0.1f, 0.5f);
+  motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 3000, 20, 10, 500, 0, 2.5f, 0.1f, 0.5f);
   /* USER CODE END 2 */
 
   static uint32_t emag_test_tick = 0;
@@ -152,17 +159,7 @@ int main(void)
       HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
     }
 
-    /* ---- 测试: 每2秒切换继电器 (验证PI2和硬件是否正常) ---- */
-    if(HAL_GetTick() - emag_test_tick > 2000)
-    {
-      emag_test_tick = HAL_GetTick();
-      emag_test_state = !emag_test_state;
-      if (emag_test_state) {
-        GPIOI->BSRR = (uint32_t)GPIO_PIN_0 << 16; /* LOW = 吸合 */
-      } else {
-        GPIOI->BSRR = GPIO_PIN_0;                  /* HIGH = 断开 */
-      }
-    }
+    /* 继电器测试代码已注释，用ST-Link看relay_on变量确认按键检测 */
 
     if(HAL_GetTick() - motor_tick >= 10)
     {
@@ -189,35 +186,41 @@ int main(void)
 
 						if (edge2 & KEY_PHY_R1.mask)
 						{
-								speed_scale *= 0.8f;
-								if (speed_scale < 0.3f)
-										speed_scale = 0.3f;
+								speed_scale *= 1.25f;  /* R1: speed up */
+								if (speed_scale > 2.0f)
+										speed_scale = 2.0f;
 						}
 
 						if (edge2 & KEY_PHY_L1.mask)
 						{
-								speed_scale *= 1.25f;
-								if (speed_scale > 2.0f)
-										speed_scale = 2.0f;
+								speed_scale *= 0.8f;   /* L1: slow down */
+								if (speed_scale < 0.3f)
+										speed_scale = 0.3f;
 						}
 
 						prev_btn2 = btn2_effective;
 				}
 
-        /* ---- dead zone ---- */
+        /* ---- joystick normalize ---- */
         int16_t ly = (int16_t)ps2.joy_ly - cly;
         int16_t rx = (int16_t)ps2.joy_rx - crx;
-        if (ly > -35 && ly < 35) ly = 0;
-        if (rx > -35 && rx < 35) rx = 0;
 
-        /* ---- differential drive + PID speed control ---- */
-        /* joystick → target RPM (max ~300rpm at full stick) */
-        float fwd_rpm = -ly * 4.0f * speed_scale;
-        float trn_rpm =  rx * 3.5f * speed_scale;
+        if (ly > -JOY_DEAD && ly < JOY_DEAD) ly = 0;
+        if (rx > -JOY_DEAD && rx < JOY_DEAD) rx = 0;
 
-        motor_pid[0].target = fwd_rpm + trn_rpm;
-        motor_pid[1].target = fwd_rpm - trn_rpm;
+        float fwd = 0.0f, trn = 0.0f;
+        if (ly != 0) { fwd = -(float)ly / (JOY_MAX - JOY_DEAD); if (fwd >  1.0f) fwd =  1.0f; if (fwd < -1.0f) fwd = -1.0f; }
+        if (rx != 0) { trn =  (float)rx / (JOY_MAX - JOY_DEAD); if (trn >  1.0f) trn =  1.0f; if (trn < -1.0f) trn = -1.0f; }
 
+        float fwd_rpm = fwd * WHEEL_MAX_RPM * speed_scale;
+        float trn_rpm = trn * TURN_MAX_RPM  * speed_scale;
+        float t_l = fwd_rpm + trn_rpm, t_r = fwd_rpm - trn_rpm;
+        if (t_l >  WHEEL_MAX_RPM) t_l =  WHEEL_MAX_RPM; if (t_l < -WHEEL_MAX_RPM) t_l = -WHEEL_MAX_RPM;
+        if (t_r >  WHEEL_MAX_RPM) t_r =  WHEEL_MAX_RPM; if (t_r < -WHEEL_MAX_RPM) t_r = -WHEEL_MAX_RPM;
+        motor_pid[0].target = t_l;
+        motor_pid[1].target = t_r;
+
+        /* ---- PID speed control ---- */
         int16_t cur_l = (int16_t)motor_pid[0].f_cal_pid(&motor_pid[0],
                                          moto_chassis[0].speed_rpm);
         int16_t cur_r = (int16_t)motor_pid[1].f_cal_pid(&motor_pid[1],
@@ -279,27 +282,33 @@ int main(void)
          * Servo1 (PC1, L2/R2): 180° angle servo — holds position on release
          *   500us=0°, 1500us=90°, 2500us=180°
          */
-        #define S_360_STEP 15
-        #define S_180_STEP 15
+        #define SERVO360_DB  5u    /* debounce frames */
+        #define S_180_STEP  25
 
-        /* ---- servo0: 360°, stop on release (2-frame debounce) ---- */
+        /* ---- servo0: 360° fixed-speed, stop on release ---- */
         {
           uint8_t left_now  = ps2_key_pressed(KEY_PHY_LEFT);
           uint8_t right_now = ps2_key_pressed(KEY_PHY_RIGHT);
 
-          if (left_now  && debounce_left  < 5) debounce_left++;
-          else if (!left_now)                    debounce_left = 0;
-          if (right_now && debounce_right < 5) debounce_right++;
-          else if (!right_now)                   debounce_right = 0;
-
-          uint16_t s0 = servo_get_pulse(SERVO_CH0);
-          if (debounce_left > 4) {
-            if (s0 > 500) s0 -= S_360_STEP;
-          } else if (debounce_right > 4) {
-            if (s0 < 2500) s0 += S_360_STEP;
+          if (left_now && !right_now) {
+            if (debounce_left  < 10) debounce_left++;
+            debounce_right = 0;
+          } else if (right_now && !left_now) {
+            if (debounce_right < 10) debounce_right++;
+            debounce_left = 0;
           } else {
-            s0 = 1500;
+            debounce_left = 0;
+            debounce_right = 0;
           }
+
+          uint16_t s0;
+          if (debounce_left >= SERVO360_DB)
+            s0 = SERVO360_STOP_US - SERVO360_SPEED_US;
+          else if (debounce_right >= SERVO360_DB)
+            s0 = SERVO360_STOP_US + SERVO360_SPEED_US;
+          else
+            s0 = SERVO360_STOP_US;
+
           servo_set_pulse(SERVO_CH0, s0);
         }
 
@@ -328,28 +337,29 @@ int main(void)
 
         /* ---- 继电器: 按一下CIRCLE=吸合, 再按一下=断开 (toggle) ---- */
         {
-          uint8_t circle_bit = (ps2.btn2 & PS2_CIR) ? 1 : 0;
+          uint8_t circle_bit = (ps2.btn2 & 0x10) ? 1 : 0;  /* confirmed: btn2 127→111 */
           if (prev_circle_bit && !circle_bit) {   /* falling edge = press */
             relay_on = !relay_on;
           }
           prev_circle_bit = circle_bit;
 
           if (relay_on) {
-            GPIOI->BSRR = (uint32_t)GPIO_PIN_0 << 16; /* LOW = 吸合 */
+            GPIOD->BSRR = (uint32_t)GPIO_PIN_12 << 16; /* LOW = 吸合 */
           } else {
-            GPIOI->BSRR = GPIO_PIN_0;                  /* HIGH = 断开 */
+            GPIOD->BSRR = GPIO_PIN_12;                  /* HIGH = 断开 */
           }
         }
 
-        servo_tim4_glitch_check();
+        /* servo_tim4_glitch_check(); */
         ps2_fail_cnt = 0;  /* reset fail counter on successful read */
       } else {
         ps2_fail_cnt++;
+        servo_set_pulse(SERVO_CH0, SERVO360_STOP_US);
         /* 连续10次失败(100ms)才判定真断连, 防止偶尔噪声误触发 */
         if (ps2_connected && ps2_fail_cnt > 10) {
           ps2_connected = 0;
-          motor_pid[0].f_pid_reset(&motor_pid[0], 6, 1.0f, 0.5f);
-          motor_pid[1].f_pid_reset(&motor_pid[1], 6, 1.0f, 0.5f);
+          motor_pid[0].f_pid_reset(&motor_pid[0], 2.5f, 0.1f, 0.5f);
+          motor_pid[1].f_pid_reset(&motor_pid[1], 2.5f, 0.1f, 0.5f);
           set_moto_current(&hcan1, 0, 0);
           HAL_TIM_Base_Stop_IT(&htim3);
           stepper_period = 10499;
@@ -357,7 +367,7 @@ int main(void)
           pul_state = 0;
           GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
           relay_on = 0;
-          GPIOI->BSRR = GPIO_PIN_0;                  /* HIGH = 断开 */
+          GPIOD->BSRR = GPIO_PIN_12;                  /* HIGH = 断开 */
         }
         if (!ps2_connected && HAL_GetTick() - ps2_reinit_tick > 200) {
           ps2_reinit_tick = HAL_GetTick();
