@@ -31,8 +31,8 @@ u8   ps2_read(ps2_state_t *state);
 #define PS2_R2      0x02
 #define PS2_L1      0x04
 #define PS2_R1      0x08
-#define PS2_TRI     0x10
-#define PS2_CIR     0x20
+#define PS2_CIR     0x10
+#define PS2_TRI     0x20
 #define PS2_X       0x40
 #define PS2_SQR     0x80
 

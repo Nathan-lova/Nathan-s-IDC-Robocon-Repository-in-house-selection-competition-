@@ -72,11 +72,12 @@ static float    speed_scale = 1.0f;
 static uint8_t  prev_btn2 = 0xFF;       /* edge detection for L1/R1 */
 static uint32_t ps2_ok_cnt = 0;
 static uint32_t ps2_fail_cnt = 0;
+static uint32_t startup_guard_cnt = 0;       /* skip motor output first ~500ms */
 
 static uint8_t  cal_ok = 0;
 static uint8_t  cly, crx;
 static uint8_t  relay_on;
-static uint8_t  prev_circle_bit = 1;   /* btn2 bit5 idle=1 (not pressed) */
+static uint8_t  prev_circle_bit = 1;   /* btn2 bit4 idle=1 (not pressed) */
 static uint8_t  debounce_left;
 static uint8_t  debounce_right;
 static uint8_t  debounce_l2;
@@ -221,10 +222,15 @@ int main(void)
         motor_pid[1].target = t_r;
 
         /* ---- PID speed control ---- */
-        int16_t cur_l = (int16_t)motor_pid[0].f_cal_pid(&motor_pid[0],
-                                         moto_chassis[0].speed_rpm);
-        int16_t cur_r = (int16_t)motor_pid[1].f_cal_pid(&motor_pid[1],
-                                         -moto_chassis[1].speed_rpm);
+        int16_t cur_l = 0, cur_r = 0;
+        if (startup_guard_cnt > 50) {
+          cur_l = (int16_t)motor_pid[0].f_cal_pid(&motor_pid[0],
+                                           moto_chassis[0].speed_rpm);
+          cur_r = (int16_t)motor_pid[1].f_cal_pid(&motor_pid[1],
+                                           -moto_chassis[1].speed_rpm);
+        } else {
+          startup_guard_cnt++;
+        }
 
         if (cur_l >  8000) cur_l =  8000;
         if (cur_l < -8000) cur_l = -8000;
@@ -337,7 +343,7 @@ int main(void)
 
         /* ---- 继电器: 按一下CIRCLE=吸合, 再按一下=断开 (toggle) ---- */
         {
-          uint8_t circle_bit = (ps2.btn2 & 0x10) ? 1 : 0;  /* confirmed: btn2 127→111 */
+          uint8_t circle_bit = (ps2.btn2 & PS2_CIR) ? 1 : 0;
           if (prev_circle_bit && !circle_bit) {   /* falling edge = press */
             relay_on = !relay_on;
           }

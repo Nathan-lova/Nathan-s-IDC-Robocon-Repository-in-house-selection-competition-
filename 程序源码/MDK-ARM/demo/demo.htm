@@ -3,7 +3,7 @@
 <title>Static Call Graph - [demo\demo.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image demo\demo.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060061: Last Updated: Sun May 24 02:35:01 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060061: Last Updated: Mon May 25 07:46:05 2026
 <BR><P>
 <H3>Maximum Stack Usage =        256 bytes + Unknown(Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -601,6 +601,8 @@ Global Symbols
 <LI><a href="#[7b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_CAN_Init
 <LI><a href="#[76]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;Callback_RC_Handle
 <LI><a href="#[62]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
+<LI><a href="#[66]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;pid_reset
+<LI><a href="#[65]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;pid_param_init
 <LI><a href="#[67]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;pid_calculate
 <LI><a href="#[73]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_CAN_RxCpltCallback
 <LI><a href="#[93]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_RCC_OscConfig
@@ -954,7 +956,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[62]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[cb]"></a>MX_EMAG_GPIO_Init</STRONG> (Thumb, 64 bytes, Stack size 8 bytes, gpio.o(i.MX_EMAG_GPIO_Init))
+<P><STRONG><a name="[cb]"></a>MX_EMAG_GPIO_Init</STRONG> (Thumb, 72 bytes, Stack size 8 bytes, gpio.o(i.MX_EMAG_GPIO_Init))
 <BR><BR>[Stack]<UL><LI>Max Depth = 8<LI>Call Chain = MX_EMAG_GPIO_Init
 </UL>
 <BR>[Called By]<UL><LI><a href="#[62]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
@@ -1135,7 +1137,7 @@ Global Symbols
 <BR><BR>[Called By]<UL><LI><a href="#[73]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_CAN_RxCpltCallback
 </UL>
 
-<P><STRONG><a name="[62]"></a>main</STRONG> (Thumb, 1896 bytes, Stack size 40 bytes, main.o(i.main))
+<P><STRONG><a name="[62]"></a>main</STRONG> (Thumb, 1862 bytes, Stack size 40 bytes, main.o(i.main))
 <BR><BR>[Stack]<UL><LI>Max Depth = 256<LI>Call Chain = main &rArr; SystemClock_Config &rArr; HAL_RCC_ClockConfig &rArr; HAL_InitTick &rArr; HAL_TIM_Base_Init &rArr; HAL_TIM_Base_MspInit &rArr; HAL_NVIC_SetPriority &rArr; NVIC_SetPriority
 </UL>
 <BR>[Calls]<UL><LI><a href="#[78]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_TogglePin
@@ -1339,10 +1341,18 @@ Local Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> pid.o(i.pid_init)
 </UL>
-<P><STRONG><a name="[65]"></a>pid_param_init</STRONG> (Thumb, 88 bytes, Stack size 0 bytes, pid.o(i.pid_param_init))
+<P><STRONG><a name="[65]"></a>pid_param_init</STRONG> (Thumb, 200 bytes, Stack size 56 bytes, pid.o(i.pid_param_init))
+<BR><BR>[Stack]<UL><LI>Max Depth = 56<LI>Call Chain = pid_param_init
+</UL>
+<BR>[Calls]<UL><LI><a href="#[77]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
+</UL>
 <BR>[Address Reference Count : 1]<UL><LI> pid.o(i.pid_init)
 </UL>
-<P><STRONG><a name="[66]"></a>pid_reset</STRONG> (Thumb, 14 bytes, Stack size 0 bytes, pid.o(i.pid_reset))
+<P><STRONG><a name="[66]"></a>pid_reset</STRONG> (Thumb, 120 bytes, Stack size 24 bytes, pid.o(i.pid_reset))
+<BR><BR>[Stack]<UL><LI>Max Depth = 24<LI>Call Chain = pid_reset
+</UL>
+<BR>[Calls]<UL><LI><a href="#[77]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
+</UL>
 <BR>[Address Reference Count : 1]<UL><LI> pid.o(i.pid_init)
 </UL>
 <P><STRONG><a name="[d7]"></a>__set_BASEPRI</STRONG> (Thumb, 8 bytes, Stack size 0 bytes, ps2.o(i.__set_BASEPRI))

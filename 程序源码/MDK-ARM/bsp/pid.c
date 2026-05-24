@@ -29,7 +29,17 @@ static void pid_param_init(
 	pid->kp = kp;
 	pid->ki = ki;
 	pid->kd = kd;
-	pid->output = 0;
+	pid->measure     = 0;
+	pid->err         = 0;
+	pid->last_err    = 0;
+	pid->pout        = 0;
+	pid->iout        = 0;
+	pid->dout        = 0;
+	pid->output      = 0;
+	pid->last_output = 0;
+	pid->lasttime    = HAL_GetTick();
+	pid->thistime    = HAL_GetTick();
+	pid->dtime       = 0;
 }
 
 static void pid_reset(PID_TypeDef * pid, float kp, float ki, float kd)
@@ -37,6 +47,17 @@ static void pid_reset(PID_TypeDef * pid, float kp, float ki, float kd)
 	pid->kp = kp;
 	pid->ki = ki;
 	pid->kd = kd;
+	pid->measure     = 0;
+	pid->err         = 0;
+	pid->last_err    = 0;
+	pid->pout        = 0;
+	pid->iout        = 0;
+	pid->dout        = 0;
+	pid->output      = 0;
+	pid->last_output = 0;
+	pid->lasttime    = HAL_GetTick();
+	pid->thistime    = HAL_GetTick();
+	pid->dtime       = 0;
 }
 
 static float pid_calculate(PID_TypeDef* pid, float measure)
