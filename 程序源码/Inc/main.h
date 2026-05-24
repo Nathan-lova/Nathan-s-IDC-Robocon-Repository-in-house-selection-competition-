@@ -68,6 +68,11 @@
 #define MOTO_DIR_GPIO_Port GPIOB
 #define RELAY_Pin GPIO_PIN_12
 #define RELAY_GPIO_Port GPIOD
+
+/* IR8 line-follow sensor: PF0=I2C2_SCL, PF1=I2C2_SDA */
+#define IR8_SCL_Pin GPIO_PIN_0
+#define IR8_SDA_Pin GPIO_PIN_1
+#define IR8_GPIO_Port GPIOF
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

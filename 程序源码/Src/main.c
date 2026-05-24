@@ -18,6 +18,8 @@
 #include "bsp_can.h"
 #include "ps2.h"
 #include "pid.h"
+#include "bsp_ir8.h"
+#include "line_follow.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -59,6 +61,9 @@ static ps2_key_t KEY_PHY_L2       = K_BTN1(0x80);  /* confirmed: btn1 255→127 
 static ps2_key_t KEY_PHY_R2       = K_BTN2(0x01);  /* confirmed: btn2 127→126 */
 static ps2_key_t KEY_PHY_L1       = K_BTN2(0x02);
 static ps2_key_t KEY_PHY_R1       = K_BTN2(0x04);
+/* FIXME: SQUARE button bit needs verification. Press SQUARE and watch
+   ps2.btn2 in the debugger to find which bit clears (0x08/0x20/0x40). */
+static ps2_key_t KEY_PHY_SQUARE   = K_BTN2(0x08);
 
 
 uint16_t TIM_COUNT[2];
@@ -77,6 +82,7 @@ static uint8_t  cal_ok = 0;
 static uint8_t  cly, crx;
 static uint8_t  relay_on;
 static uint8_t  prev_circle_bit = 1;   /* btn2 bit5 idle=1 (not pressed) */
+static uint8_t  prev_square_bit = 1;
 static uint8_t  debounce_left;
 static uint8_t  debounce_right;
 static uint8_t  debounce_l2;
@@ -140,6 +146,7 @@ int main(void)
   MX_TIM4_Init();
   servo_drv_init();
   ps2_init();
+  IR8_Init();
 
   /* PID speed control init */
   pid_init(&motor_pid[0]);
@@ -201,6 +208,32 @@ int main(void)
 						prev_btn2 = btn2_effective;
 				}
 
+        /* ---- SQUARE: toggle line-follow mode (edge-triggered) ---- */
+        {
+          uint8_t square_bit = (ps2.btn2 & KEY_PHY_SQUARE.mask) ? 1 : 0;
+          if (prev_square_bit && !square_bit) {
+            if (lf_is_active()) lf_stop();
+            else                 lf_start();
+          }
+          prev_square_bit = square_bit;
+        }
+
+        float fwd_rpm, trn_rpm;
+
+        if (lf_is_active()) {
+          uint8_t ir = IR8_Read();
+          float steer = lf_update(ir);
+          if (!lf_is_active()) {
+            fwd_rpm = 0.0f;
+            trn_rpm = 0.0f;
+          } else {
+            fwd_rpm = LF_SPEED_RPM * speed_scale;
+            trn_rpm = -steer;  /* negate: pos>0 (line right) → steer<0 → trn>0 → turn right */
+          }
+          HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
+        } else {
+          HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
+
         /* ---- joystick normalize ---- */
         int16_t ly = (int16_t)ps2.joy_ly - cly;
         int16_t rx = (int16_t)ps2.joy_rx - crx;
@@ -212,8 +245,10 @@ int main(void)
         if (ly != 0) { fwd = -(float)ly / (JOY_MAX - JOY_DEAD); if (fwd >  1.0f) fwd =  1.0f; if (fwd < -1.0f) fwd = -1.0f; }
         if (rx != 0) { trn =  (float)rx / (JOY_MAX - JOY_DEAD); if (trn >  1.0f) trn =  1.0f; if (trn < -1.0f) trn = -1.0f; }
 
-        float fwd_rpm = fwd * WHEEL_MAX_RPM * speed_scale;
-        float trn_rpm = trn * TURN_MAX_RPM  * speed_scale;
+        fwd_rpm = fwd * WHEEL_MAX_RPM * speed_scale;
+        trn_rpm = trn * TURN_MAX_RPM  * speed_scale;
+        }
+
         float t_l = fwd_rpm + trn_rpm, t_r = fwd_rpm - trn_rpm;
         if (t_l >  WHEEL_MAX_RPM) t_l =  WHEEL_MAX_RPM; if (t_l < -WHEEL_MAX_RPM) t_l = -WHEEL_MAX_RPM;
         if (t_r >  WHEEL_MAX_RPM) t_r =  WHEEL_MAX_RPM; if (t_r < -WHEEL_MAX_RPM) t_r = -WHEEL_MAX_RPM;
