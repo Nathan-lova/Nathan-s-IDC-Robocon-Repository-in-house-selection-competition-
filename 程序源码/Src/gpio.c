@@ -145,7 +145,7 @@ void MX_EMAG_GPIO_Init(void)
   GPIOD->MODER  = (GPIOD->MODER & ~(3u << 24)) | (1u << 24);
   GPIOD->OTYPER &= ~(1u << 12);
 
-  /* PD12 HIGH = 继电器断开 */
-  GPIOD->BSRR = GPIO_PIN_12;
+  /* PD12 LOW = PWM-off state, TIM4 ISR will drive it */
+  GPIOD->BSRR = (uint32_t)GPIO_PIN_12 << 16;
 }
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

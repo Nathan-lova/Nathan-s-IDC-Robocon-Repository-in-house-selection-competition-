@@ -298,10 +298,13 @@ void MX_TIM4_Init(void)
   HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1);
   sConfigOC.Pulse = 1500;
   HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2);
+  sConfigOC.Pulse = RELAY_PULSE_OFF;
+  HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_3);
 
   HAL_TIM_Base_Start_IT(&htim4);
   HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_1);
   HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_2);
+  HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_3);
 }
 
 /* TIM4 MSP init added to existing HAL_TIM_Base_MspInit below */
@@ -322,10 +325,15 @@ void MX_SERVO_GPIO_Init(void)
    Upper layer calls servo_set_pulse() once; driver keeps the
    signal alive every 20ms. Pulse values are fully encapsulated.
    ================================================================ */
+/* relay PWM macros */
+#define RELAY_PULSE_ON   1000
+#define RELAY_PULSE_OFF  2000
+
 static volatile uint16_t servo_pulse[2] = {
     SERVO_PULSE_CENTER,
     SERVO_PULSE_CENTER
 };
+static volatile uint16_t relay_pulse = RELAY_PULSE_OFF;
 
 static void clamp_pulse(uint8_t ch)
 {
@@ -354,11 +362,25 @@ uint16_t servo_get_pulse(uint8_t ch)
     return servo_pulse[ch];
 }
 
+void relay_set_pulse(uint16_t pulse_us)
+{
+    if (pulse_us < SERVO_PULSE_MIN)  pulse_us = SERVO_PULSE_MIN;
+    if (pulse_us > SERVO_PULSE_MAX)  pulse_us = SERVO_PULSE_MAX;
+    relay_pulse = pulse_us;
+}
+
+uint16_t relay_get_pulse(void)
+{
+    return relay_pulse;
+}
+
 void servo_tim4_period_elapsed(void)
 {
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, servo_pulse[SERVO_CH0]);
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, servo_pulse[SERVO_CH1]);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, relay_pulse);
     GPIOC->BSRR = GPIO_PIN_0 | GPIO_PIN_1;
+    GPIOD->BSRR = GPIO_PIN_12;  /* relay HIGH = pulse start */
 }
 
 void servo_tim4_oc_match(uint8_t channel)
@@ -367,6 +389,8 @@ void servo_tim4_oc_match(uint8_t channel)
         GPIOC->BSRR = (uint32_t)GPIO_PIN_0 << 16;
     else if (channel == HAL_TIM_ACTIVE_CHANNEL_2)
         GPIOC->BSRR = (uint32_t)GPIO_PIN_1 << 16;
+    else if (channel == HAL_TIM_ACTIVE_CHANNEL_3)
+        GPIOD->BSRR = (uint32_t)GPIO_PIN_12 << 16;  /* relay LOW = pulse end */
 }
 
 void servo_tim4_glitch_check(void)

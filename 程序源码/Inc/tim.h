@@ -77,9 +77,15 @@ void MX_SERVO_GPIO_Init(void);
 #define SERVO_PULSE_MAX     2500
 #define SERVO_PULSE_CENTER  1500
 
+/* ---- relay PWM via TIM4_CH3 (20ms period) ---- */
+#define RELAY_PULSE_ON   1000
+#define RELAY_PULSE_OFF  2000
+
 void servo_drv_init(void);
 void servo_set_pulse(uint8_t ch, uint16_t pulse_us);
 uint16_t servo_get_pulse(uint8_t ch);
+void relay_set_pulse(uint16_t pulse_us);
+uint16_t relay_get_pulse(void);
 void servo_tim4_period_elapsed(void);
 void servo_tim4_oc_match(uint8_t channel);
 void servo_tim4_glitch_check(void);

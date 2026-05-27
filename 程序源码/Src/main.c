@@ -31,6 +31,7 @@ volatile uint16_t dbg_servo1_pulse = 0;
 #define TURN_MAX_RPM  3000.0f
 #define SERVO360_STOP_US  1500u
 #define SERVO360_SPEED_US 150u
+#define SLEW_RATE         200.0f  /* RPM per 10ms tick, limit target ramp */
 
 PID_TypeDef motor_pid[2];
 
@@ -69,6 +70,8 @@ static uint8_t  pul_state = 0;
 static int8_t   stepper_dir = 0;  /* -1=DOWN, 0=STOP, 1=UP */
 static ps2_state_t ps2;
 static float    speed_scale = 1.0f;
+static float    actual_target_l = 0.0f;
+static float    actual_target_r = 0.0f;
 static uint8_t  prev_btn2 = 0xFF;       /* edge detection for L1/R1 */
 static uint32_t ps2_ok_cnt = 0;
 static uint32_t ps2_fail_cnt = 0;
@@ -90,7 +93,7 @@ static uint8_t  ps2_connected = 1;
 static uint32_t ps2_reinit_tick = 0;
 
 /* stepper acceleration */
-static uint16_t stepper_period = 10499;  /* ~2000 steps/s start */
+static uint16_t stepper_period = 6999;   /* ~6000 steps/s start */
 /* USER CODE END PV */
 /* USER CODE END PV */
 
@@ -119,12 +122,47 @@ static uint8_t ps2_key_pressed(ps2_key_t key)
 }
 /* USER CODE END 0 */
 
+static float ramp_target(float target, float current)
+{
+    float diff = target - current;
+    if (diff >  SLEW_RATE) return current + SLEW_RATE;
+    if (diff < -SLEW_RATE) return current - SLEW_RATE;
+    return target;
+}
+
 int main(void)
 {
+  /* ====================== boot debug LED sequence ======================
+     PF14 (LED1) 状态指示启动进度:
+       灭      → 还未上电或硬件故障
+       亮(常亮) → 卡在 HAL_Init()
+       亮→灭→亮 → 卡在 SystemClock_Config() / HSE 起振
+       闪烁     → 已进入主循环, 正常运行
+     =================================================================== */
+
+  /* ---- 第0步: 绕过HAL, 直接亮LED ---- */
+  __HAL_RCC_GPIOF_CLK_ENABLE();
+  GPIOF->MODER = (GPIOF->MODER & ~(3u << 28)) | (1u << 28);  /* PF14 output */
+
+  /* 阶段1: HAL_Init 前 → LED ON */
+  GPIOF->BSRR = GPIO_PIN_14;
+
   HAL_Init();
+
+  /* 阶段1完成: HAL_Init 通过 → LED OFF */
+  GPIOF->BSRR = (uint32_t)GPIO_PIN_14 << 16;
+
+  /* 阶段2: SystemClock_Config 前 → LED ON */
+  GPIOF->BSRR = GPIO_PIN_14;
+
   SystemClock_Config();
 
-  MX_GPIO_Init();
+  /* 阶段2完成: SystemClock_Config 通过 → LED OFF */
+  GPIOF->BSRR = (uint32_t)GPIO_PIN_14 << 16;
+
+  /* ====================== boot debug end ====================== */
+
+  MX_GPIO_Init();  /* re-inits PF14, LED1 goes OFF here */
   MX_DMA_Init();
   MX_CAN1_Init();
   MX_USART1_UART_Init();
@@ -145,8 +183,8 @@ int main(void)
   /* PID speed control init */
   pid_init(&motor_pid[0]);
   pid_init(&motor_pid[1]);
-  motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 3000, 20, 10, 500, 0, 2.5f, 0.1f, 0.5f);
-  motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 3000, 20, 10, 500, 0, 2.5f, 0.1f, 0.5f);
+  motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.28f, 0.35f);
+  motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.28f, 0.35f);
   /* USER CODE END 2 */
 
   static uint32_t emag_test_tick = 0;
@@ -218,8 +256,10 @@ int main(void)
         float t_l = fwd_rpm + trn_rpm, t_r = fwd_rpm - trn_rpm;
         if (t_l >  WHEEL_MAX_RPM) t_l =  WHEEL_MAX_RPM; if (t_l < -WHEEL_MAX_RPM) t_l = -WHEEL_MAX_RPM;
         if (t_r >  WHEEL_MAX_RPM) t_r =  WHEEL_MAX_RPM; if (t_r < -WHEEL_MAX_RPM) t_r = -WHEEL_MAX_RPM;
-        motor_pid[0].target = t_l;
-        motor_pid[1].target = t_r;
+        actual_target_l = ramp_target(t_l, actual_target_l);
+        actual_target_r = ramp_target(t_r, actual_target_r);
+        motor_pid[0].target = actual_target_l;
+        motor_pid[1].target = actual_target_r;
 
         /* ---- PID speed control ---- */
         int16_t cur_l = 0, cur_r = 0;
@@ -259,7 +299,7 @@ int main(void)
             /* direction change or start/stop — full reset before switch */
             HAL_TIM_Base_Stop_IT(&htim3);
             htim3.Instance->CNT = 0;
-            stepper_period = 10499;
+            stepper_period = 6999;
             htim3.Instance->ARR = stepper_period;
             pul_state = 0;
             GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;  /* PUL LOW */
@@ -275,9 +315,9 @@ int main(void)
           }
 
           /* accel ramp */
-          if (stepper_dir != 0 && stepper_period > 4999) {
+          if (stepper_dir != 0 && stepper_period > 3332) {
             stepper_period -= 250;
-            if (stepper_period < 4999) stepper_period = 4999;
+            if (stepper_period < 3332) stepper_period = 3332;
             htim3.Instance->ARR = stepper_period;
           }
         }
@@ -289,7 +329,7 @@ int main(void)
          *   500us=0°, 1500us=90°, 2500us=180°
          */
         #define SERVO360_DB  5u    /* debounce frames */
-        #define S_180_STEP  25
+        #define S_180_STEP  15
 
         /* ---- servo0: 360° fixed-speed, stop on release ---- */
         {
@@ -350,9 +390,9 @@ int main(void)
           prev_circle_bit = circle_bit;
 
           if (relay_on) {
-            GPIOD->BSRR = (uint32_t)GPIO_PIN_12 << 16; /* LOW = 吸合 */
+            relay_set_pulse(RELAY_PULSE_ON);   /* 1000us = 吸合 */
           } else {
-            GPIOD->BSRR = GPIO_PIN_12;                  /* HIGH = 断开 */
+            relay_set_pulse(RELAY_PULSE_OFF);  /* 2000us = 断开 */
           }
         }
 
@@ -364,16 +404,18 @@ int main(void)
         /* 连续10次失败(100ms)才判定真断连, 防止偶尔噪声误触发 */
         if (ps2_connected && ps2_fail_cnt > 10) {
           ps2_connected = 0;
-          motor_pid[0].f_pid_reset(&motor_pid[0], 2.5f, 0.1f, 0.5f);
-          motor_pid[1].f_pid_reset(&motor_pid[1], 2.5f, 0.1f, 0.5f);
+          motor_pid[0].f_pid_reset(&motor_pid[0], 1.6f, 0.28f, 0.35f);
+          motor_pid[1].f_pid_reset(&motor_pid[1], 1.6f, 0.28f, 0.35f);
+          actual_target_l = 0.0f;
+          actual_target_r = 0.0f;
           set_moto_current(&hcan1, 0, 0);
           HAL_TIM_Base_Stop_IT(&htim3);
-          stepper_period = 10499;
+          stepper_period = 6999;
           stepper_dir = 0;
           pul_state = 0;
           GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
           relay_on = 0;
-          GPIOD->BSRR = GPIO_PIN_12;                  /* HIGH = 断开 */
+          relay_set_pulse(RELAY_PULSE_OFF);  /* 2000us = 断开 */
         }
         if (!ps2_connected && HAL_GetTick() - ps2_reinit_tick > 200) {
           ps2_reinit_tick = HAL_GetTick();
