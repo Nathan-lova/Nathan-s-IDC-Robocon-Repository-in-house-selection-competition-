@@ -226,15 +226,15 @@ int main(void)
 						if (edge2 & KEY_PHY_R1.mask)
 						{
 								speed_scale *= 1.25f;  /* R1: speed up */
-								if (speed_scale > 2.0f)
-										speed_scale = 2.0f;
+								if (speed_scale > 2.5f)
+										speed_scale = 2.5f;
 						}
 
 						if (edge2 & KEY_PHY_L1.mask)
 						{
 								speed_scale *= 0.8f;   /* L1: slow down */
-								if (speed_scale < 0.3f)
-										speed_scale = 0.3f;
+								if (speed_scale < 0.2f)
+										speed_scale = 0.2f;
 						}
 
 						prev_btn2 = btn2_effective;
@@ -329,7 +329,7 @@ int main(void)
          *   500us=0°, 1500us=90°, 2500us=180°
          */
         #define SERVO360_DB  5u    /* debounce frames */
-        #define S_180_STEP  15
+        #define S_180_STEP  9
 
         /* ---- servo0: 360° fixed-speed, stop on release ---- */
         {
@@ -370,9 +370,9 @@ int main(void)
 
           uint16_t s1 = servo_get_pulse(SERVO_CH1);
           if (debounce_l2 > 2) {
-            if (s1 > 1500) s1 -= S_180_STEP;
+            if (s1 > 1400) s1 -= S_180_STEP;
           } else if (debounce_r2 > 2) {
-            if (s1 < 2000) s1 += S_180_STEP;
+            if (s1 < 1785) s1 += S_180_STEP;
           }
           servo_set_pulse(SERVO_CH1, s1);
           dbg_servo1_pulse = s1;  /* debug: watch this in Keil */
