@@ -464,6 +464,11 @@
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c</FilePath>
             </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_i2c.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -518,6 +523,11 @@
               <FileName>ps2.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\bsp\ps2.c</FilePath>
+            </File>
+            <File>
+              <FileName>ir8.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\bsp\ir8.c</FilePath>
             </File>
           </Files>
         </Group>

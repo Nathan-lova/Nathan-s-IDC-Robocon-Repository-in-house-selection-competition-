@@ -18,6 +18,7 @@
 #include "bsp_can.h"
 #include "ps2.h"
 #include "pid.h"
+#include "ir8.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -91,6 +92,15 @@ static uint8_t  debounce_down;
 /* Nathan-style PS2 reconnect */
 static uint8_t  ps2_connected = 1;
 static uint32_t ps2_reinit_tick = 0;
+
+/* line-following mode */
+static uint8_t  line_follow_mode = 0;
+static uint8_t  prev_cir_bit = 1;
+static float    line_base_speed = 1500.0f;
+static uint8_t  line_stop = 0;
+static uint8_t  line_found = 0;
+static uint8_t  ir8_err_cnt = 0;
+static PID_TypeDef line_pid;
 
 /* stepper acceleration */
 static uint16_t stepper_period = 6999;   /* ~6000 steps/s start */
@@ -171,6 +181,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   my_can_filter_init_recv_all(&hcan1);
   HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0);
+  hcan1.Instance->MCR |= CAN_MCR_ABOM;  /* auto bus-off recovery */
 
   MX_MOTO_GPIO_Init();
   MX_EMAG_GPIO_Init();
@@ -179,12 +190,17 @@ int main(void)
   MX_TIM4_Init();
   servo_drv_init();
   ps2_init();
+  ir8_init();
 
   /* PID speed control init */
   pid_init(&motor_pid[0]);
   pid_init(&motor_pid[1]);
   motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.28f, 0.35f);
   motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.28f, 0.35f);
+
+  pid_init(&line_pid);
+  line_pid.f_param_init(&line_pid, PID_Speed, 2000, 800, 0.1f, 10, 100, 0, 200.0f, 30.0f, 200.0f);
+
   /* USER CODE END 2 */
 
   static uint32_t emag_test_tick = 0;
@@ -204,7 +220,9 @@ int main(void)
     {
       motor_tick = HAL_GetTick();
 
-      if (ps2_read(&ps2)) {
+      u8 ps2_ok = ps2_read(&ps2);
+
+      if (ps2_ok) {
 				
         ps2_connected = 1;
         ps2_ok_cnt++;
@@ -214,6 +232,48 @@ int main(void)
           cly = ps2.joy_ly;
           crx = ps2.joy_rx;
         }
+
+        /* ---- SQR button toggles line-following mode ---- */
+        {
+          uint8_t cir_bit = (ps2.btn2 & PS2_CIR) ? 1 : 0;
+          if (prev_cir_bit && !cir_bit) {
+            line_follow_mode = !line_follow_mode;
+            if (line_follow_mode) {
+              motor_pid[0].f_pid_reset(&motor_pid[0], 1.6f, 0.28f, 0.35f);
+              motor_pid[1].f_pid_reset(&motor_pid[1], 1.6f, 0.28f, 0.35f);
+              line_pid.f_pid_reset(&line_pid, 300.0f, 30.0f, 200.0f);
+              actual_target_l = 0.0f;
+              actual_target_r = 0.0f;
+              motor_pid[0].target = 0.0f;
+              motor_pid[1].target = 0.0f;
+              line_stop = 0;
+              line_found = 0;
+              ir8_err_cnt = 0;
+              HAL_TIM_Base_Stop_IT(&htim3);
+              htim3.Instance->CNT = 0;
+              stepper_period = 6999;
+              pul_state = 0;
+              GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
+              stepper_dir = 0;
+              relay_on = 0;
+              relay_set_pulse(RELAY_PULSE_OFF);
+              servo_set_pulse(SERVO_CH0, SERVO360_STOP_US);
+              servo_set_pulse(SERVO_CH1, SERVO_PULSE_CENTER);
+            } else {
+              motor_pid[0].f_pid_reset(&motor_pid[0], 1.6f, 0.28f, 0.35f);
+              motor_pid[1].f_pid_reset(&motor_pid[1], 1.6f, 0.28f, 0.35f);
+              actual_target_l = 0.0f;
+              actual_target_r = 0.0f;
+              motor_pid[0].target = 0.0f;
+              motor_pid[1].target = 0.0f;
+              set_moto_current(&hcan1, 0, 0);
+            }
+          }
+          prev_cir_bit = cir_bit;
+          prev_circle_bit = cir_bit;  /* sync to prevent relay double-fire */
+        }
+
+        if (!line_follow_mode) {
 
         /* ---- speed: L1=×0.75, R1=×1.33 (edge-triggered, 0=pressed) ---- */
 				{
@@ -260,24 +320,6 @@ int main(void)
         actual_target_r = ramp_target(t_r, actual_target_r);
         motor_pid[0].target = actual_target_l;
         motor_pid[1].target = actual_target_r;
-
-        /* ---- PID speed control ---- */
-        int16_t cur_l = 0, cur_r = 0;
-        if (startup_guard_cnt > 50) {
-          cur_l = (int16_t)motor_pid[0].f_cal_pid(&motor_pid[0],
-                                           moto_chassis[0].speed_rpm);
-          cur_r = (int16_t)motor_pid[1].f_cal_pid(&motor_pid[1],
-                                           -moto_chassis[1].speed_rpm);
-        } else {
-          startup_guard_cnt++;
-        }
-
-        if (cur_l >  8000) cur_l =  8000;
-        if (cur_l < -8000) cur_l = -8000;
-        if (cur_r >  8000) cur_r =  8000;
-        if (cur_r < -8000) cur_r = -8000;
-
-        set_moto_current(&hcan1, cur_l, -cur_r);
 
         /* ---- stepper: D-pad UP/DOWN (3-frame debounce) ---- */
         {
@@ -397,30 +439,108 @@ int main(void)
         }
 
         /* servo_tim4_glitch_check(); */
+
+        } /* !line_follow_mode */
+
         ps2_fail_cnt = 0;  /* reset fail counter on successful read */
       } else {
         ps2_fail_cnt++;
-        servo_set_pulse(SERVO_CH0, SERVO360_STOP_US);
-        /* 连续10次失败(100ms)才判定真断连, 防止偶尔噪声误触发 */
-        if (ps2_connected && ps2_fail_cnt > 10) {
-          ps2_connected = 0;
-          motor_pid[0].f_pid_reset(&motor_pid[0], 1.6f, 0.28f, 0.35f);
-          motor_pid[1].f_pid_reset(&motor_pid[1], 1.6f, 0.28f, 0.35f);
-          actual_target_l = 0.0f;
-          actual_target_r = 0.0f;
-          set_moto_current(&hcan1, 0, 0);
-          HAL_TIM_Base_Stop_IT(&htim3);
-          stepper_period = 6999;
-          stepper_dir = 0;
-          pul_state = 0;
-          GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
-          relay_on = 0;
-          relay_set_pulse(RELAY_PULSE_OFF);  /* 2000us = 断开 */
+        if (!line_follow_mode) {
+          servo_set_pulse(SERVO_CH0, SERVO360_STOP_US);
+          /* 连续10次失败(100ms)才判定真断连, 防止偶尔噪声误触发 */
+          if (ps2_connected && ps2_fail_cnt > 10) {
+            ps2_connected = 0;
+            motor_pid[0].f_pid_reset(&motor_pid[0], 1.6f, 0.28f, 0.35f);
+            motor_pid[1].f_pid_reset(&motor_pid[1], 1.6f, 0.28f, 0.35f);
+            actual_target_l = 0.0f;
+            actual_target_r = 0.0f;
+            motor_pid[0].target = 0.0f;
+            motor_pid[1].target = 0.0f;
+            set_moto_current(&hcan1, 0, 0);
+            HAL_TIM_Base_Stop_IT(&htim3);
+            stepper_period = 6999;
+            stepper_dir = 0;
+            pul_state = 0;
+            GPIOB->BSRR = (uint32_t)MOTO_PUL_Pin << 16;
+            relay_on = 0;
+            relay_set_pulse(RELAY_PULSE_OFF);  /* 2000us = 断开 */
+          }
+          if (!ps2_connected && HAL_GetTick() - ps2_reinit_tick > 200) {
+            ps2_reinit_tick = HAL_GetTick();
+            ps2_init();
+          }
         }
-        if (!ps2_connected && HAL_GetTick() - ps2_reinit_tick > 200) {
-          ps2_reinit_tick = HAL_GetTick();
-          ps2_init();
+      }
+
+      /* ---- line-follow target computation ---- */
+      if (line_follow_mode) {
+        ir8_data_t ir8;
+        u8 ir8_ok = ir8_read(&ir8) && ir8.valid;
+
+        if (ir8_ok) {
+          ir8_err_cnt = 0;
+          if (ir8.active_count > 0)
+            line_found = 1;
+          if (!line_found) {
+            line_stop = 0;
+          } else if (ir8.active_count == 0) {
+            line_stop = 1;
+          } else if (ir8.error > 2.5f || ir8.error < -2.5f) {
+            line_stop = 1;
+          } else {
+            line_stop = 0;
+          }
+        } else {
+          ir8_err_cnt++;
+          if (ir8_err_cnt >= 4)
+            line_stop = 1;
         }
+
+        if (!line_stop && ir8_ok) {
+          float t_l, t_r;
+          if (!line_found) {
+            t_l = line_base_speed;
+            t_r = line_base_speed;
+          } else {
+            float correction = line_pid.f_cal_pid(&line_pid, -ir8.error);
+            t_l = line_base_speed + correction;
+            t_r = line_base_speed - correction;
+          }
+          if (t_l >  WHEEL_MAX_RPM) t_l =  WHEEL_MAX_RPM;
+          if (t_l < -WHEEL_MAX_RPM) t_l = -WHEEL_MAX_RPM;
+          if (t_r >  WHEEL_MAX_RPM) t_r =  WHEEL_MAX_RPM;
+          if (t_r < -WHEEL_MAX_RPM) t_r = -WHEEL_MAX_RPM;
+          actual_target_l = ramp_target(t_l, actual_target_l);
+          actual_target_r = ramp_target(t_r, actual_target_r);
+          motor_pid[0].target = actual_target_l;
+          motor_pid[1].target = actual_target_r;
+        } else if (line_stop) {
+          actual_target_l = ramp_target(0.0f, actual_target_l);
+          actual_target_r = ramp_target(0.0f, actual_target_r);
+          motor_pid[0].target = 0.0f;
+          motor_pid[1].target = 0.0f;
+        }
+        /* I2C glitch but not stopped: keep previous targets */
+      }
+
+      /* ---- common motor PID + CAN output ---- */
+      {
+        int16_t cur_l = 0, cur_r = 0;
+        if (startup_guard_cnt > 50) {
+          cur_l = (int16_t)motor_pid[0].f_cal_pid(&motor_pid[0],
+                                           moto_chassis[0].speed_rpm);
+          cur_r = (int16_t)motor_pid[1].f_cal_pid(&motor_pid[1],
+                                           -moto_chassis[1].speed_rpm);
+        } else {
+          startup_guard_cnt++;
+        }
+
+        if (cur_l >  8000) cur_l =  8000;
+        if (cur_l < -8000) cur_l = -8000;
+        if (cur_r >  8000) cur_r =  8000;
+        if (cur_r < -8000) cur_r = -8000;
+
+        set_moto_current(&hcan1, cur_l, -cur_r);
       }
     }
   }

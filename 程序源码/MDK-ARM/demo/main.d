@@ -44,3 +44,4 @@ demo\main.o: C:\Users\34993\AppData\Local\Keil_v5\ARM\ARMCC\Bin\..\include\strin
 demo\main.o: C:\Users\34993\AppData\Local\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
 demo\main.o: .\bsp\ps2.h
 demo\main.o: .\bsp\pid.h
+demo\main.o: .\bsp\ir8.h
