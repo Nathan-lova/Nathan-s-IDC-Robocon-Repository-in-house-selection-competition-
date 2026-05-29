@@ -90,8 +90,9 @@ static uint8_t  debounce_up;
 static uint8_t  debounce_down;
 
 /* Nathan-style PS2 reconnect */
-static uint8_t  ps2_connected = 1;
+static uint8_t  ps2_connected = 0;
 static uint32_t ps2_reinit_tick = 0;
+static uint8_t  ps2_reconnect_cnt = 0;
 
 /* line-following mode */
 static uint8_t  line_follow_mode = 0;
@@ -224,8 +225,16 @@ int main(void)
 
       if (ps2_ok) {
 				
-        ps2_connected = 1;
         ps2_ok_cnt++;
+
+        /* reconnection debounce: 30 consecutive OK frames (300ms) */
+        if (!ps2_connected) {
+          if (++ps2_reconnect_cnt >= 30) {
+            ps2_reconnect_cnt = 0;
+            ps2_connected = 1;
+          }
+        } else {
+          ps2_fail_cnt = 0;
 
         if (!cal_ok) {
           cal_ok = 1;
@@ -442,8 +451,9 @@ int main(void)
 
         } /* !line_follow_mode */
 
-        ps2_fail_cnt = 0;  /* reset fail counter on successful read */
+        }
       } else {
+        ps2_reconnect_cnt = 0;
         ps2_fail_cnt++;
         if (!line_follow_mode) {
           servo_set_pulse(SERVO_CH0, SERVO360_STOP_US);
@@ -526,7 +536,7 @@ int main(void)
       /* ---- common motor PID + CAN output ---- */
       {
         int16_t cur_l = 0, cur_r = 0;
-        if (startup_guard_cnt > 50) {
+        if (startup_guard_cnt > 200) {
           cur_l = (int16_t)motor_pid[0].f_cal_pid(&motor_pid[0],
                                            moto_chassis[0].speed_rpm);
           cur_r = (int16_t)motor_pid[1].f_cal_pid(&motor_pid[1],
