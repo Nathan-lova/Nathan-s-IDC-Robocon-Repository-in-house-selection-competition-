@@ -26,7 +26,7 @@
 volatile uint16_t dbg_servo180_target = 0;
 volatile uint16_t dbg_servo1_pulse = 0;
 /* USER CODE BEGIN PV */
-#define JOY_DEAD      15
+#define JOY_DEAD      20
 #define JOY_MAX       127.0f
 #define WHEEL_MAX_RPM 4000.0f
 #define TURN_MAX_RPM  3000.0f
@@ -96,7 +96,7 @@ static uint32_t ps2_reinit_tick = 0;
 /* line-following mode */
 static uint8_t  line_follow_mode = 0;
 static uint8_t  prev_cir_bit = 1;
-static float    line_base_speed = 1500.0f;
+static float    line_base_speed = 2000.0f;
 static uint8_t  line_stop = 0;
 static uint8_t  line_found = 0;
 static uint8_t  ir8_err_cnt = 0;
@@ -195,11 +195,11 @@ int main(void)
   /* PID speed control init */
   pid_init(&motor_pid[0]);
   pid_init(&motor_pid[1]);
-  motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.28f, 0.35f);
-  motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.28f, 0.35f);
+  motor_pid[0].f_param_init(&motor_pid[0], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.32f, 0.35f);
+  motor_pid[1].f_param_init(&motor_pid[1], PID_Speed, 8000, 4000, 20, 10, 500, 0, 1.6f, 0.32f, 0.35f);
 
   pid_init(&line_pid);
-  line_pid.f_param_init(&line_pid, PID_Speed, 2000, 800, 0.1f, 10, 100, 0, 200.0f, 30.0f, 200.0f);
+  line_pid.f_param_init(&line_pid, PID_Speed, 2000, 800, 0.1f, 10, 100, 0, 1.0f, 30.0f, 200.0f);
 
   /* USER CODE END 2 */
 
@@ -233,7 +233,7 @@ int main(void)
           crx = ps2.joy_rx;
         }
 
-        /* ---- SQR button toggles line-following mode ---- */
+        /* ---- CIR button toggles line-following mode ---- */
         {
           uint8_t cir_bit = (ps2.btn2 & PS2_CIR) ? 1 : 0;
           if (prev_cir_bit && !cir_bit) {
@@ -485,7 +485,7 @@ int main(void)
             line_stop = 0;
           } else if (ir8.active_count == 0) {
             line_stop = 1;
-          } else if (ir8.error > 2.5f || ir8.error < -2.5f) {
+          } else if (ir8.error > 3.0f || ir8.error < -3.0f) {
             line_stop = 1;
           } else {
             line_stop = 0;
